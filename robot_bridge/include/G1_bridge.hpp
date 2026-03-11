@@ -12,6 +12,7 @@
 #include "unitree_hg/msg/motor_cmd.hpp"
 #include "common/motor_crc_hg.h"
 #include "unitree_go/msg/wireless_controller.hpp"
+#include "std_msgs/msg/string.hpp"
 
 
 namespace sairol_bridge {
@@ -56,6 +57,8 @@ private:
     rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowStateSubscriber_;
     rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr remoteControlSubscriber_;
     rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowCommandPublisher_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmdInputSubscriber_;
+    void cmdInputCallback_(std_msgs::msg::String::SharedPtr msg);
     int mode_machine_{0};
 
 

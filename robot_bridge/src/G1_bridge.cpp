@@ -31,6 +31,12 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
     }
+
+    // Subscribe to /cmd_input for remote start/stop without wireless controller
+    cmdInputSubscriber_ = nh->create_subscription<std_msgs::msg::String>(
+        "/cmd_input", 10,
+        std::bind(&sairol_bridge::G1Bridge::cmdInputCallback_, this, std::placeholders::_1));
+    RCLCPP_INFO(nh->get_logger(), "Subscribed to /cmd_input for remote control");
 }
 
 
@@ -46,6 +52,24 @@ bool sairol_bridge::G1Bridge::checkExternalPublisher_(std::string topic_name)
         return false;
     }
     return true;
+}
+
+void sairol_bridge::G1Bridge::cmdInputCallback_(std_msgs::msg::String::SharedPtr msg)
+{
+    if (msg->data == "start")
+    {
+        RCLCPP_INFO(nh->get_logger(), "[cmd_input] Received 'start' -> initializing control...");
+        initControl_(bridge_interface::msg::RobotCmd());
+    }
+    else if (msg->data == "stop")
+    {
+        RCLCPP_INFO(nh->get_logger(), "[cmd_input] Received 'stop' -> stopping control...");
+        controlStarted_ = false;
+    }
+    else
+    {
+        RCLCPP_WARN(nh->get_logger(), "[cmd_input] Unknown command: '%s'", msg->data.c_str());
+    }
 }
 
 
