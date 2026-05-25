@@ -112,7 +112,22 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     }
     // Update the last state time using the same clock source
     last_state_time_ = nh->get_clock()->now();
-    for (size_t i = 0; i < msg->motor_state.size(); ++i)
+    const auto motor_state_count = msg->motor_state.size();
+    const auto expected_motor_state_count = static_cast<size_t>(numJoint_);
+    const auto copy_count = std::min(motor_state_count, expected_motor_state_count);
+
+    if (motor_state_count != expected_motor_state_count)
+    {
+        RCLCPP_WARN_ONCE(
+            nh->get_logger(),
+            "LowState carries %zu motor states, but robot_bridge is configured for %zu joints. "
+            "Only the first %zu entries will be used.",
+            motor_state_count,
+            expected_motor_state_count,
+            copy_count);
+    }
+
+    for (size_t i = 0; i < copy_count; ++i)
     {
         currentState_.motor_state[i].q = msg->motor_state[i].q;
         currentState_.motor_state[i].dq = msg->motor_state[i].dq;
@@ -175,10 +190,12 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
         else
         {
             cmd.tau = cmdParams_[i].tau_0 + cmdParams_[i].tau_1 * phase;
+            // RCLCPP_WARN(nh->get_logger(), "Torque control is disabled for joint %d, but tau command is non-zero. Check if this is intended!", i);
+            // RCLCPP_WARN(nh->get_logger(), "tau command for joint %d: %f", i, cmd.tau);
         }  
-        cmd.q = std::clamp(cmd.q, 
-            (-cmd.kd * (currentState_.motor_state[i].dq - cmd.dq) - joint_info.tau_limit) / cmd.kp + currentState_.motor_state[i].q, 
-            (-cmd.kd * (currentState_.motor_state[i].dq - cmd.dq) + joint_info.tau_limit) / cmd.kp + currentState_.motor_state[i].q);
+        // cmd.q = std::clamp(cmd.q, 
+        //     (-cmd.kd * (currentState_.motor_state[i].dq - cmd.dq) - joint_info.tau_limit) / cmd.kp + currentState_.motor_state[i].q, 
+        //     (-cmd.kd * (currentState_.motor_state[i].dq - cmd.dq) + joint_info.tau_limit) / cmd.kp + currentState_.motor_state[i].q);
 
         last_cmd.q = cmd.q;
         last_cmd.dq = cmd.dq;
@@ -188,6 +205,8 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
         
         if (receivedCmd_ && joints_[i].if_parallel_joint)
         {
+            RCLCPP_WARN(nh->get_logger(), "DID PARALLEL JOINT CONTROL FOR JOINT %d, CHECK IF THIS IS INTENDED!", i);
+
             cmd.tau = std::clamp((last_cmd.q - currentState_.motor_state[i].q) * cmd.kp, -joint_info.tau_limit, joint_info.tau_limit);
             cmd.q = currentState_.motor_state[i].q;
             cmd.kp = 0.0;
