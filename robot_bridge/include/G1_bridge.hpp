@@ -51,7 +51,7 @@ private:
     void lowStateHandler_(unitree_hg::msg::LowState::SharedPtr message);
     bool initControl_(bridge_interface::msg::RobotCmd default_cmd) override;
     void finishControl_() override; 
-    bool checkExternalPublisher_(std::string topic_name);
+    bool waitForReleasedController_();
 
     rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowStateSubscriber_;
     rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr remoteControlSubscriber_;

@@ -1,10 +1,14 @@
 #include "G1_bridge.hpp"
+#include <nlohmann/json.hpp>
+#include "unitree_api/msg/request.hpp"
+#include "unitree_api/msg/response.hpp"
 // #include "unitree_hg/message_utils.hpp"
 
 using namespace std::chrono_literals;
 
 sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(node)
 {
+    if (!rclcpp::ok()) return;
 
     lowCommandDesired_.motor_cmd.resize(numJoint_);
     lastCommand_.motor_cmd.resize(numJoint_);
@@ -17,35 +21,76 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     // remoteControlSubscriber_ = nh->create_subscription<unitree_go::msg::WirelessController>(
     //     "/wirelesscontroller", 10, std::bind(&sairol_bridge::G1Bridge::wireless_callback, this, std::placeholders::_1));
 
-    while (!checkExternalPublisher_("/lowcmd"))
-    {
-        rclcpp::sleep_for(std::chrono::milliseconds(1000));
-    }
+    if (!waitForReleasedController_()) return;
 
     lowCommandPublisher_ = nh->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 10); // /joint_ctrl
 
     // Waiting for publisher on topic lowstate
     RCLCPP_INFO(nh->get_logger(), "Waiting for publisher on topic /lowstate...");
 
-    while (nh->count_publishers("/lowstate") == 0)
+    while (rclcpp::ok() && nh->count_publishers("/lowstate") == 0)
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
     }
 }
 
 
-bool sairol_bridge::G1Bridge::checkExternalPublisher_(std::string topic_name)
+bool sairol_bridge::G1Bridge::waitForReleasedController_()
 {
-    auto publishers_info = nh->get_publishers_info_by_topic(topic_name);
-    int publisher_count = publishers_info.size();
-    if (publisher_count > 0)
+    // Spin only this temporary node: bridge control services must not run before handover.
+    auto probe = std::make_shared<rclcpp::Node>("g1_handover_check");
+    using Clock = std::chrono::steady_clock;
+    auto last_command = Clock::now();
+    auto last_confirmation = Clock::time_point::min();
+    auto next_request = Clock::now();
+    bool released = false;
+    int64_t request_id = 0;
+    auto commands = probe->create_subscription<unitree_hg::msg::LowCmd>(
+        "/lowcmd", rclcpp::SensorDataQoS(),
+        [&](unitree_hg::msg::LowCmd::ConstSharedPtr) { last_command = Clock::now(); });
+    auto requests = probe->create_publisher<unitree_api::msg::Request>(
+        "/api/motion_switcher/request", 10);
+    auto responses = probe->create_subscription<unitree_api::msg::Response>(
+        "/api/motion_switcher/response", rclcpp::SensorDataQoS(),
+        [&](unitree_api::msg::Response::ConstSharedPtr response) {
+            if (response->header.identity.id != request_id ||
+                response->header.identity.api_id != 1001) return;
+            const auto data = nlohmann::json::parse(response->data, nullptr, false);
+            released = response->header.status.code == 0 && data.is_object() &&
+                data.contains("name") && data["name"].is_string() && data["name"] == "";
+            if (released) last_confirmation = Clock::now();
+        });
+
+    RCLCPP_INFO(nh->get_logger(),
+        "Waiting for CheckMode name='' and 3 seconds without /lowcmd samples. "
+        "Release the motion mode with the robot supported; this bridge does not release it automatically.");
+    while (rclcpp::ok())
     {
-        RCLCPP_ERROR_STREAM(nh->get_logger(),
-                     "Detected " << publisher_count << " publishers on " << topic_name.c_str() << 
-                     ". Please change to the debug mode by pressing L2 + R2");
-        return false;
+        rclcpp::spin_some(probe);
+        const auto now = Clock::now();
+        if (released && now - last_confirmation < 1500ms && now - last_command >= 3s)
+        {
+            // Some firmware retains a silent DDS writer after ReleaseMode().
+            // This is a startup handover check, not a runtime exclusivity guarantee.
+            RCLCPP_INFO(nh->get_logger(), "Controller released and /lowcmd quiet; startup handover verified.");
+            return rclcpp::ok();
+        }
+        if (now >= next_request && rclcpp::ok())
+        {
+            unitree_api::msg::Request request;
+            request_id = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+            request.header.identity.id = request_id;
+            request.header.identity.api_id = 1001;  // MotionSwitcher.CheckMode; read-only.
+            request.parameter = "{}";
+            requests->publish(request);
+            next_request = now + 1s;
+            RCLCPP_INFO(nh->get_logger(), "Waiting for handover: released=%s, /lowcmd quiet for %.1f s",
+                released ? "yes" : "unverified",
+                std::chrono::duration<double>(now - last_command).count());
+        }
+        rclcpp::sleep_for(20ms);
     }
-    return true;
+    return false;
 }
 
 
@@ -263,6 +308,5 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
 void sairol_bridge::G1Bridge::finishControl_() {
     RCLCPP_INFO(nh->get_logger(), "finishControl_ called from G1Bridge");
 }
-
 
 

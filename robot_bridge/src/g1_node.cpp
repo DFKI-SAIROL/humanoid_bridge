@@ -16,16 +16,27 @@ int main(int argc, char **argv)
 
     std::shared_ptr<sairol_bridge::BridgeCore> bridge;
 
-    auto g1_bridge = std::make_shared<sairol_bridge::G1Bridge>(nh);
-    bridge = g1_bridge;
-
-    if (bridge)
-    {   
-        bridge->start();
-        rclcpp::spin(nh);
+    try
+    {
+        bridge = std::make_shared<sairol_bridge::G1Bridge>(nh);
+        if (rclcpp::ok())
+        {
+            bridge->start();
+            rclcpp::spin(nh);
+        }
     }
-
-    bridge->stop();
+    catch (const rclcpp::exceptions::RCLError &error)
+    {
+        // SIGINT can invalidate the context between an ok() check and a ROS call.
+        if (rclcpp::ok())
+        {
+            RCLCPP_ERROR(nh->get_logger(), "%s", error.what());
+            rclcpp::shutdown();
+            if (bridge) bridge->stop();
+            return 1;
+        }
+    }
+    if (bridge) bridge->stop();
     return 0;
 }
 

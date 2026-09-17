@@ -28,6 +28,7 @@ find_package(rosidl_default_runtime REQUIRED)
 find_package(unitree_go REQUIRED)
 find_package(unitree_hg REQUIRED)
 find_package(unitree_api REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 
 include_directories(include include/common)
@@ -40,6 +41,7 @@ add_executable(G1_bridge
   src/g1_node.cpp
   src/common/motor_crc_hg.cpp
 )
+target_link_libraries(G1_bridge nlohmann_json::nlohmann_json)
 
 ament_target_dependencies(G1_bridge
   unitree_go
