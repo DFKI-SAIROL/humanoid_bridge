@@ -2,6 +2,21 @@
 #include <nlohmann/json.hpp>
 #include "unitree_api/msg/request.hpp"
 #include "unitree_api/msg/response.hpp"
+#include "libstatistics_collector/topic_statistics_collector/received_message_age.hpp"
+
+// Foxy treats any field named header as std_msgs/Header. Unitree's RPC
+// header has no timestamp; explicitly mark its message age as unavailable.
+namespace libstatistics_collector::topic_statistics_collector
+{
+template<>
+struct TimeStamp<unitree_api::msg::Response, void>
+{
+    static std::pair<bool, int64_t> value(const unitree_api::msg::Response &)
+    {
+        return {false, 0};
+    }
+};
+}
 // #include "unitree_hg/message_utils.hpp"
 
 using namespace std::chrono_literals;
@@ -308,5 +323,4 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
 void sairol_bridge::G1Bridge::finishControl_() {
     RCLCPP_INFO(nh->get_logger(), "finishControl_ called from G1Bridge");
 }
-
 
