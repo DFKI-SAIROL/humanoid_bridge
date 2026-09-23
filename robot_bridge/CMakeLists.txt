@@ -228,6 +228,16 @@ if(BUILD_BOOSTER_T1)
   )
 endif()
 
+# ============================================================== AgiBot X2 =================================================================================
+
+option(BUILD_AGIBOT_X2 "Build AgiBot X2 bridge" OFF)
+
+if(BUILD_AGIBOT_X2)
+  find_package(aimdk_msgs REQUIRED)
+
+  # X2 target and installation will be added after source files are ready.
+endif()
+
 
 # ==============================================================test node cmake==============================================================================
 add_executable(test_node src/test.cpp)
