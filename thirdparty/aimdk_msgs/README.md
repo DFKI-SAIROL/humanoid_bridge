@@ -1,0 +1,1 @@
+# Minimal aimdk_msgs
