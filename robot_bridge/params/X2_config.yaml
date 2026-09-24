@@ -1,0 +1,384 @@
+# X2 Ultra (head yaw only): offline development reference, NOT validated for robot motion.
+# Limits: SDK X2_URDF-v1.3.0 + narrower documented bounds where applicable.
+# kp/kd and ready_q: SDK mc-rl standup_gains and JOINT_DEFAULT_POS; verify before use.
+
+robot_bridge:
+  ros__parameters:
+    robot_name: "X2"
+    duration: 1.5 #SDK JOINT_DEFAULT_DURATION, reference only
+    control_dt: 0.005 #SDK deployment command period, 200Hz
+    empty_joint_index: 30 #X2 has no empty joint
+    num_joint: 30
+    torque_control: false
+    imu_rpy_threshold: 1.0 #bridge roll/pitch threshold; verify on robot
+
+    upper_limbs_kp_min: 0.0
+    upper_limbs_kp_max: 50.0 #reference gain envelope, not hardware maximum
+    upper_limbs_kd_min: 0.0
+    upper_limbs_kd_max: 1.0
+
+    lower_limbs_kp_min: 0.0
+    lower_limbs_kp_max: 300.0 #legs + waist reference gain envelope
+    lower_limbs_kd_min: 0.0
+    lower_limbs_kd_max: 8.0
+
+    enable_head: true
+    head_joint_count: 1
+    leg_state_timeout: 0.2
+    waist_state_timeout: 0.2
+    arm_state_timeout: 0.2
+    head_state_timeout: 0.2
+    imu_state_timeout: 0.2
+
+    check_component_skew: false
+    include_imu_in_time_check: true
+    # max_component_skew: set measured seconds before enabling
+    # Joints: meas_stamp; IMU: stamp. Verify their meaning and common clock on robot.
+
+
+    joint_names: ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
+                  "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint", "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",
+                  "waist_yaw_joint", "waist_pitch_joint", "waist_roll_joint",
+                  "left_shoulder_pitch_joint", "left_shoulder_roll_joint", "left_shoulder_yaw_joint", "left_elbow_joint", "left_wrist_yaw_joint", "left_wrist_pitch_joint", "left_wrist_roll_joint",
+                  "right_shoulder_pitch_joint", "right_shoulder_roll_joint", "right_shoulder_yaw_joint", "right_elbow_joint", "right_wrist_yaw_joint", "right_wrist_pitch_joint", "right_wrist_roll_joint",
+                  "head_yaw_joint"]
+
+    ready_q: [
+              -0.05, 0.0, 0.0, 0.1, -0.05, 0.0,
+              -0.05, 0.0, 0.0, 0.1, -0.05, 0.0,
+              0.0, 0.0, 0.0,
+              0.4, 0.0, 0.0, -1.2, 0.0, 0.0, 0.0,
+              0.4, 0.0, 0.0, -1.2, 0.0, 0.0, 0.0,
+              0.0
+             ]
+
+
+    left_hip_pitch_joint:
+      idx: 0
+      q_min: -2.704
+      q_max: 2.556
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 40.0
+      kd: 4.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    left_hip_roll_joint:
+      idx: 1
+      q_min: -0.235
+      q_max: 2.906
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 40.0
+      kd: 4.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    left_hip_yaw_joint:
+      idx: 2
+      q_min: -1.684
+      q_max: 3.43
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 30.0
+      kd: 3.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    left_knee_joint:
+      idx: 3
+      q_min: 0.0
+      q_max: 2.4073
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 80.0
+      kd: 8.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    left_ankle_pitch_joint:
+      idx: 4
+      q_min: -0.803
+      q_max: 0.453
+      dq_limit: 13.087
+      tau_limit: 36.0
+      kp: 40.0
+      kd: 4.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    left_ankle_roll_joint:
+      idx: 5
+      q_min: -0.262
+      q_max: 0.262
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 20.0
+      kd: 2.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    right_hip_pitch_joint:
+      idx: 6
+      q_min: -2.704
+      q_max: 2.556
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 40.0
+      kd: 4.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    right_hip_roll_joint:
+      idx: 7
+      q_min: -2.906
+      q_max: 0.235
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 40.0
+      kd: 4.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    right_hip_yaw_joint:
+      idx: 8
+      q_min: -3.43
+      q_max: 1.684
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 30.0
+      kd: 3.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    right_knee_joint:
+      idx: 9
+      q_min: 0.0
+      q_max: 2.4073
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 80.0
+      kd: 8.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    right_ankle_pitch_joint:
+      idx: 10
+      q_min: -0.803
+      q_max: 0.453
+      dq_limit: 13.088
+      tau_limit: 36.0
+      kp: 40.0
+      kd: 4.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    right_ankle_roll_joint:
+      idx: 11
+      q_min: -0.2625
+      q_max: 0.2625
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 20.0
+      kd: 2.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    waist_yaw_joint:
+      idx: 12
+      q_min: -3.429572
+      q_max: 2.207842
+      dq_limit: 11.936
+      tau_limit: 120.0
+      kp: 150.0
+      kd: 3.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    waist_pitch_joint:
+      idx: 13
+      q_min: -0.314
+      q_max: 0.314
+      dq_limit: 13.088
+      tau_limit: 48.0
+      kp: 300.0
+      kd: 3.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    waist_roll_joint:
+      idx: 14
+      q_min: -0.488
+      q_max: 0.488
+      dq_limit: 13.088
+      tau_limit: 48.0
+      kp: 300.0
+      kd: 3.0
+      if_strong_joint: true
+      if_parallel_joint: false
+
+    left_shoulder_pitch_joint:
+      idx: 15
+      q_min: -3.08
+      q_max: 2.033309
+      dq_limit: 13.088
+      tau_limit: 36.0
+      kp: 30.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    left_shoulder_roll_joint:
+      idx: 16
+      q_min: -0.061
+      q_max: 2.993
+      dq_limit: 13.088
+      tau_limit: 36.0
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    left_shoulder_yaw_joint:
+      idx: 17
+      q_min: -2.556
+      q_max: 2.556
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    left_elbow_joint:
+      idx: 18
+      q_min: -2.3556
+      q_max: 0.0
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 50.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    left_wrist_yaw_joint:
+      idx: 19
+      q_min: -2.556
+      q_max: 2.556
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 50.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    left_wrist_pitch_joint:
+      idx: 20
+      q_min: -0.523599
+      q_max: 0.523599
+      dq_limit: 4.188
+      tau_limit: 4.8
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    left_wrist_roll_joint:
+      idx: 21
+      q_min: -1.50971
+      q_max: 0.724
+      dq_limit: 4.188
+      tau_limit: 4.8
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_shoulder_pitch_joint:
+      idx: 22
+      q_min: -3.08
+      q_max: 2.033309
+      dq_limit: 13.088
+      tau_limit: 36.0
+      kp: 30.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_shoulder_roll_joint:
+      idx: 23
+      q_min: -2.993
+      q_max: 0.061
+      dq_limit: 13.088
+      tau_limit: 36.0
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_shoulder_yaw_joint:
+      idx: 24
+      q_min: -2.556
+      q_max: 2.556
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_elbow_joint:
+      idx: 25
+      q_min: -2.3556
+      q_max: 0.0
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 50.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_wrist_yaw_joint:
+      idx: 26
+      q_min: -2.556
+      q_max: 2.556
+      dq_limit: 15.077
+      tau_limit: 24.0
+      kp: 50.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_wrist_pitch_joint:
+      idx: 27
+      q_min: -0.523599
+      q_max: 0.523599
+      dq_limit: 4.188
+      tau_limit: 4.8
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    right_wrist_roll_joint:
+      idx: 28
+      q_min: -0.724
+      q_max: 1.50971
+      dq_limit: 4.188
+      tau_limit: 4.8
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false
+
+    head_yaw_joint:
+      idx: 29
+      q_min: -0.349066
+      q_max: 0.349066
+      dq_limit: 6.019
+      tau_limit: 2.6
+      kp: 20.0
+      kd: 1.0
+      if_strong_joint: false
+      if_parallel_joint: false

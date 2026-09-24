@@ -42,6 +42,23 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         throw std::invalid_argument("imu_state_timeout must be finite and positive.");
     }
 
+    nh->get_parameter_or("check_component_skew", checkComponentSkew_, false);
+    nh->get_parameter_or("include_imu_in_time_check", includeImuInTimeCheck_, true);
+    if (checkComponentSkew_)
+    {
+        double seconds = 0.0;
+        if (!nh->get_parameter("max_component_skew", seconds) || !std::isfinite(seconds) || seconds <= 0.0)
+        {
+            throw std::invalid_argument("max_component_skew must be explicitly configured as finite positive seconds.");
+        }
+        const long double nanoseconds = static_cast<long double>(seconds) * 1000000000.0L;
+        if (nanoseconds < 1.0L || nanoseconds > static_cast<long double>(std::numeric_limits<int64_t>::max()))
+        {
+            throw std::invalid_argument("max_component_skew is outside the supported nanosecond range.");
+        }
+        maxComponentSkewNs_ = static_cast<int64_t>(nanoseconds);
+    }
+
     auto qos = rclcpp::SensorDataQoS();
     qos.keep_last(1);
 
@@ -98,6 +115,7 @@ void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray:
         currentState_.motor_state[0 + i].ddq = 0.0;
     }
 
+    legStateStamp_ = msg->header.meas_stamp;
     lastLegStateTime_ = std::chrono::steady_clock::now();
     legStateValid_ = true;
 }
@@ -121,6 +139,7 @@ void sairol_bridge::X2Bridge::waistStateHandler_(aimdk_msgs::msg::JointStateArra
         currentState_.motor_state[12 + i].ddq = 0.0;
     }
 
+    waistStateStamp_ = msg->header.meas_stamp;
     lastWaistStateTime_ = std::chrono::steady_clock::now();
     waistStateValid_ = true;
 }
@@ -144,6 +163,7 @@ void sairol_bridge::X2Bridge::armStateHandler_(aimdk_msgs::msg::JointStateArray:
         currentState_.motor_state[15 + i].ddq = 0.0;
     }
 
+    armStateStamp_ = msg->header.meas_stamp;
     lastArmStateTime_ = std::chrono::steady_clock::now();
     armStateValid_ = true;
 }
@@ -171,6 +191,7 @@ void sairol_bridge::X2Bridge::headStateHandler_(aimdk_msgs::msg::JointStateArray
         currentState_.motor_state[29 + i].ddq = 0.0;
     }
 
+    headStateStamp_ = msg->header.meas_stamp;
     lastHeadStateTime_ = std::chrono::steady_clock::now();
     headStateValid_ = true;
 }
@@ -208,6 +229,7 @@ void sairol_bridge::X2Bridge::imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr 
         RCLCPP_ERROR(nh->get_logger(), "X2 IMU quaternion has zero norm.");
         return;
     }
+
     const double w = values[0] / norm;
     const double x = values[1] / norm;
     const double y = values[2] / norm;
@@ -226,6 +248,7 @@ void sairol_bridge::X2Bridge::imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr 
         imu_.accelerometer[i] = values[7 + i];
     }
 
+    imuStateStamp_ = msg->header.stamp;
     lastImuStateTime_ = std::chrono::steady_clock::now();
     imuStateValid_ = true;
 }
@@ -267,7 +290,8 @@ bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStat
 bool sairol_bridge::X2Bridge::checkStateFreshness_()
 {
     // Called by BridgeCore::checkState_ before the common data checks.
-    // Existing locking behavior is unchanged; this function does not acquire mutex_.
+    // Core calls this before acquiring mutex_. Do not call it with mutex_ already held.
+    std::unique_lock<std::mutex> lock(mutex_);
     const auto now = std::chrono::steady_clock::now();
     if ((!legStateValid_ || std::chrono::duration<double>(now - lastLegStateTime_).count() > legStateTimeout_))
     {
@@ -293,6 +317,31 @@ bool sairol_bridge::X2Bridge::checkStateFreshness_()
     {
         RCLCPP_ERROR(nh->get_logger(), "X2 imu state is missing, invalid or stale.");
         return false;
+    }
+    if (checkComponentSkew_)
+    {
+        // Joint meas_stamp and IMU stamp are assumed comparable; verify on the robot.
+        const builtin_interfaces::msg::Time stamps[] = {legStateStamp_, waistStateStamp_, armStateStamp_,
+            enableHead_ ? headStateStamp_ : legStateStamp_,
+            includeImuInTimeCheck_ ? imuStateStamp_ : legStateStamp_};
+        int64_t oldest_stamp = std::numeric_limits<int64_t>::max();
+        int64_t newest_stamp = 0;
+        for (const auto &stamp : stamps)
+        {
+            if (stamp.sec < 0 || stamp.nanosec >= 1000000000U || (stamp.sec == 0 && stamp.nanosec == 0))
+            {
+                RCLCPP_ERROR(nh->get_logger(), "X2 component timestamp is zero or invalid.");
+                return false;
+            }
+            const int64_t stamp_ns = static_cast<int64_t>(stamp.sec) * 1000000000LL + stamp.nanosec;
+            oldest_stamp = std::min(oldest_stamp, stamp_ns);
+            newest_stamp = std::max(newest_stamp, stamp_ns);
+        }
+        if (newest_stamp - oldest_stamp > maxComponentSkewNs_)
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 component timestamp skew %.9f s exceeds its limit.", (newest_stamp - oldest_stamp) / 1000000000.0);
+            return false;
+        }
     }
     return true;
 }

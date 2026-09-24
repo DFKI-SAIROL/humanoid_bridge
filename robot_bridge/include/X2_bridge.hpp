@@ -8,6 +8,7 @@
 #include <string>
 #include <functional>
 #include <stdexcept>
+#include <cstdint>
 #include "bridge_core.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "aimdk_msgs/msg/joint_command_array.hpp"
@@ -69,6 +70,15 @@ private:
     bool imuStateValid_{false};
     std::chrono::steady_clock::time_point lastImuStateTime_;
     double imuStateTimeout_{0.2};
+
+    bool checkComponentSkew_{false};
+    bool includeImuInTimeCheck_{true};
+    int64_t maxComponentSkewNs_{0};
+    builtin_interfaces::msg::Time legStateStamp_;
+    builtin_interfaces::msg::Time waistStateStamp_;
+    builtin_interfaces::msg::Time armStateStamp_;
+    builtin_interfaces::msg::Time headStateStamp_;
+    builtin_interfaces::msg::Time imuStateStamp_;
 
 };
 }
