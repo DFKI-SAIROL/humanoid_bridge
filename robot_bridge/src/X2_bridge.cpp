@@ -80,6 +80,14 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     imuStateSubscriber_ = nh->create_subscription<sensor_msgs::msg::Imu>(
         "/aima/hal/imu/torso/state", qos, std::bind(&sairol_bridge::X2Bridge::imuStateHandler_, this, std::placeholders::_1));
 
+    while (!checkExternalPublisher_("/aima/hal/joint/leg/command") ||
+           !checkExternalPublisher_("/aima/hal/joint/waist/command") ||
+           !checkExternalPublisher_("/aima/hal/joint/arm/command") ||
+           (enableHead_ && !checkExternalPublisher_("/aima/hal/joint/head/command")))
+    {
+        rclcpp::sleep_for(std::chrono::milliseconds(1000));
+    }
+
     legCommandPublisher_ = nh->create_publisher<aimdk_msgs::msg::JointCommandArray>(
         "/aima/hal/joint/leg/command", qos);
 
@@ -94,6 +102,32 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         headCommandPublisher_ = nh->create_publisher<aimdk_msgs::msg::JointCommandArray>(
             "/aima/hal/joint/head/command", qos);
     }
+}
+
+bool sairol_bridge::X2Bridge::checkExternalPublisher_(std::string topic_name)
+{
+    auto publishers_info = nh->get_publishers_info_by_topic(topic_name);
+    int publisher_count = publishers_info.size();
+    if (publisher_count > 0)
+    {
+        RCLCPP_ERROR_STREAM(nh->get_logger(),
+                           "Detected " << publisher_count << " publishers on "
+                           << topic_name.c_str());
+        return false;
+    }
+    return true;
+}
+
+
+void sairol_bridge::X2Bridge::stop()
+{
+    // Wait for the control thread to finish.
+    if (controlThread_.joinable())
+    {
+        controlThread_.join();
+    }
+
+    RCLCPP_INFO(nh->get_logger(), "X2 Bridge stopped.");
 }
 
 void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr msg)
@@ -396,6 +430,10 @@ bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd defau
     calculateInterpolationParams_(duration_, 1, true);
 
     return true;
+}
+
+void sairol_bridge::X2Bridge::finishControl_() {
+    RCLCPP_INFO(nh->get_logger(), "finishControl_ called from X2Bridge");
 }
 
 bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr msg, size_t message_count, size_t state_offset, size_t active_count, std::string group_name)
