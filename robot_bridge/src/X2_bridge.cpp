@@ -357,6 +357,47 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
     }
 }
 
+bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
+{
+    for (int i = 0; i < numJoint_; ++i)
+    {
+        lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
+        lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
+        lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
+    }
+
+    calculateInterpolationParams_(0.0, 1, true);
+
+    controlStarted_ = true;
+    receivedCmd_ = true;
+    rclcpp::Rate rate(100);
+    rate.sleep();
+    RCLCPP_INFO(nh->get_logger(), "Control initialized successfully.");
+
+    if (default_cmd.motor_cmd.size() == numJoint_)
+    {
+        for (size_t i = 0; i < numJoint_; ++i)
+        {
+            lowCommandDesired_.motor_cmd[i].q = default_cmd.motor_cmd[i].q;
+            lowCommandDesired_.motor_cmd[i].kp = default_cmd.motor_cmd[i].kp;
+            lowCommandDesired_.motor_cmd[i].kd = default_cmd.motor_cmd[i].kd;
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < numJoint_; ++i)
+        {
+            lowCommandDesired_.motor_cmd[i].q = ready_q_[i];
+            lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
+            lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
+        }
+    }
+
+    calculateInterpolationParams_(duration_, 1, true);
+
+    return true;
+}
+
 bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr msg, size_t message_count, size_t state_offset, size_t active_count, std::string group_name)
 {
     // Called with mutex_ held by the state callback; do not lock it again here.
