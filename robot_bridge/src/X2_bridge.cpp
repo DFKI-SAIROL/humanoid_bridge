@@ -253,6 +253,110 @@ void sairol_bridge::X2Bridge::imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr 
     imuStateValid_ = true;
 }
 
+void sairol_bridge::X2Bridge::publishLowCommand_()
+{
+    rclcpp::Time current = nh->get_clock()->now();
+
+    float_t phase = 1.0f;
+    if (tFinal_ - tStart_ > 1e-6) {
+        phase = (current.seconds() - tStart_) / (tFinal_ - tStart_);
+    }
+
+    phase = std::clamp(phase, 0.0f, 1.0f); // Ensure phase is between 0 and 1
+
+    aimdk_msgs::msg::JointCommandArray leg_cmd;
+    aimdk_msgs::msg::JointCommandArray waist_cmd;
+    aimdk_msgs::msg::JointCommandArray arm_cmd;
+    aimdk_msgs::msg::JointCommandArray head_cmd;
+
+    leg_cmd.joints.resize(12);
+    waist_cmd.joints.resize(3);
+    arm_cmd.joints.resize(14);
+    if (enableHead_)
+    {
+        head_cmd.joints.resize(2);
+    }
+
+    for (int i = 0; i < numJoint_; ++i)
+    {
+        aimdk_msgs::msg::JointCommand cmd;
+        auto &last_cmd = lastCommand_.motor_cmd[i];
+        auto &joint_info = joints_[i];
+
+        if (1e-6 < cmdInterpOrder_ && cmdInterpOrder_ < 1.0 - 1e-6)
+        {
+            // Low pass filter for cmd
+            cmd.position = last_cmd.q * cmdInterpOrder_ + cmdParams_[i].q_0 * (1 - cmdInterpOrder_);
+            cmd.velocity = last_cmd.dq * cmdInterpOrder_ + cmdParams_[i].dq_0 * (1 - cmdInterpOrder_);
+        }
+        else {
+            // Interpolation
+            cmd.position = cmdParams_[i].q_0 + cmdParams_[i].q_1 * phase;
+            cmd.velocity = cmdParams_[i].dq_0 + cmdParams_[i].dq_1 * phase;
+        }
+
+        cmd.stiffness = cmdParams_[i].kp_0 + cmdParams_[i].kp_1 * phase;
+        cmd.damping = cmdParams_[i].kd_0 + cmdParams_[i].kd_1 * phase;
+        cmd.velocity = std::clamp<double>(cmd.velocity, -joint_info.dq_limit, joint_info.dq_limit);
+
+        if (torqueControl_)
+        {
+            cmd.effort = cmd.stiffness * (cmd.position - currentState_.motor_state[i].q) + cmd.damping * (cmd.velocity - currentState_.motor_state[i].dq) + cmdParams_[i].tau_0;
+            cmd.effort = std::clamp<double>(cmd.effort, -joint_info.tau_limit, joint_info.tau_limit);
+            cmd.stiffness = 0.0;
+            cmd.damping = 0.0;
+        }
+        else
+        {
+            cmd.effort = cmdParams_[i].tau_0 + cmdParams_[i].tau_1 * phase;
+        }
+
+        // Follow H1 position limiting; skip division when stiffness is zero.
+        if (cmd.stiffness > 0.0)
+        {
+            cmd.position = std::clamp(cmd.position,
+                (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) - joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q,
+                (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) + joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q);
+        }
+
+        last_cmd.q = cmd.position;
+        last_cmd.dq = cmd.velocity;
+        last_cmd.kp = cmd.stiffness;
+        last_cmd.kd = cmd.damping;
+        last_cmd.tau = cmd.effort;
+
+        if (i < 12)
+        {
+            leg_cmd.joints[i] = cmd;
+        }
+        else if (i < 15)
+        {
+            waist_cmd.joints[i - 12] = cmd;
+        }
+        else if (i < 29)
+        {
+            arm_cmd.joints[i - 15] = cmd;
+        }
+        else
+        {
+            head_cmd.joints[i - 29] = cmd;
+        }
+    }
+
+    leg_cmd.header.stamp = current;
+    waist_cmd.header.stamp = current;
+    arm_cmd.header.stamp = current;
+
+    legCommandPublisher_->publish(leg_cmd);
+    waistCommandPublisher_->publish(waist_cmd);
+    armCommandPublisher_->publish(arm_cmd);
+    if (enableHead_)
+    {
+        head_cmd.header.stamp = current;
+        headCommandPublisher_->publish(head_cmd);
+    }
+}
+
 bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr msg, size_t message_count, size_t state_offset, size_t active_count, std::string group_name)
 {
     // Called with mutex_ held by the state callback; do not lock it again here.
