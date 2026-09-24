@@ -342,7 +342,7 @@ namespace sairol_bridge
         }
     }
 
-    bool BridgeCore::checkState_()
+    bool BridgeCore::checkStateFreshness_()
     {
 
         auto dt_state_ = (nh->get_clock()->now() - last_state_time_).seconds();
@@ -354,6 +354,15 @@ namespace sairol_bridge
                          "Robot signal lost! No LowState message received for %.2f seconds. "
                          "Expected interval ~0.002s (500Hz). Shutting down the node to prevent unsafe operation.",
                          dt_state_);
+            return false;
+        }
+        return true;
+    }
+
+    bool BridgeCore::checkState_()
+    {
+        if (!checkStateFreshness_())
+        {
             return false;
         }
         // Check if the state message has valid data
