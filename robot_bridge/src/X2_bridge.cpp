@@ -9,11 +9,11 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     nh->get_parameter_or("enable_head", enableHead_, false);
     nh->get_parameter_or("head_joint_count", headJointCount_, 0);
 
-    if ((enableHead_ && headJointCount_ != 1 && headJointCount_ != 2) ||
+    if ((enableHead_ && headJointCount_ != 1) ||
         (!enableHead_ && headJointCount_ != 0) ||
         numJoint_ != 29 + headJointCount_)
     {
-        throw std::invalid_argument("X2 requires 29 body joints and explicitly configured active head axes (0, 1 or 2).");
+        throw std::invalid_argument("X2 requires 29 joints without the head or 30 joints with head yaw.");
     }
 
     nh->get_parameter_or("leg_state_timeout", legStateTimeout_, 0.2);

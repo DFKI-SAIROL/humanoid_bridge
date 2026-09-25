@@ -56,7 +56,6 @@ private:
     bool legStateValid_{false};
     std::chrono::steady_clock::time_point lastLegStateTime_;
     double legStateTimeout_{0.2};
-    aimdk_msgs::msg::JointStateArray::SharedPtr legStateMessage_;
 
     bool waistStateValid_{false};
     std::chrono::steady_clock::time_point lastWaistStateTime_;
