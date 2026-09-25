@@ -82,6 +82,35 @@ class RemoteController:
         else:
             self.new_event = False
 
+    def set_joy(self, msg):
+        # ROS game_controller_node uses SDL's standardized button and axis order
+        if len(msg.axes) < 6 or len(msg.buttons) < 15:
+            return False
+        if not np.all(np.isfinite(msg.axes)) or np.any(np.abs(msg.axes) > 1.0):
+            return False
+        if any(button not in (0, 1) for button in msg.buttons):
+            return False
+
+        buttons = [0] * 16
+        mapping = ((KeyMap.R1, 10), (KeyMap.L1, 9), (KeyMap.start, 6),
+                   (KeyMap.select, 4), (KeyMap.F1, 7), (KeyMap.F2, 8),
+                   (KeyMap.A, 0), (KeyMap.B, 1), (KeyMap.X, 2), (KeyMap.Y, 3),
+                   (KeyMap.up, 11), (KeyMap.right, 14), (KeyMap.down, 12), (KeyMap.left, 13))
+        for key, index in mapping:
+            buttons[key] = msg.buttons[index]
+        # Standardized trigger axes are zero when released and negative when pressed
+        buttons[KeyMap.L2] = int(msg.axes[4] < -0.5)
+        buttons[KeyMap.R2] = int(msg.axes[5] < -0.5)
+        self.last_button = self.button
+        self.button = buttons
+        self.new_event = any(value and not self.last_button[i] for i, value in enumerate(buttons))
+        # Preserve the signs expected by the existing H1 policy example
+        self.lx, self.ly = -msg.axes[0], msg.axes[1]
+        self.rx, self.ry = -msg.axes[2], msg.axes[3]
+        if msg.buttons[5] or any(msg.buttons[15:]):
+            self.new_event = False
+        return True
+
     def is_exact_combo(self, buttons, combo_keys):
         return (
             all(buttons[k] for k in combo_keys) and
@@ -91,7 +120,7 @@ class RemoteController:
 
 
 class RobotClient:
-    def __init__(self, node, robot_type, num_dof, control_frequency, interpolation_order=0) -> None:
+    def __init__(self, node, robot_type, num_dof, control_frequency, interpolation_order=0, enable_joystick=False) -> None:
         self.node: Node = node
         self.robot_type = robot_type
         self.num_dof = num_dof
@@ -322,6 +351,16 @@ class RobotClient:
         self.control_start_time = None
         self.control_started = False
 
+        if self.robot_type == "X2" and enable_joystick:
+            from sensor_msgs.msg import Joy
+            from rclpy.qos import qos_profile_sensor_data
+
+            self.remote_controller = RemoteController()
+            self._joy_future_x2 = None
+            self._joy_stop_requested_x2 = False
+            self.joystick_subscription = self.node.create_subscription(
+                Joy, '/joy', self._joy_handler_x2, qos_profile_sensor_data)
+
     @property
     def q_pos(self):
         return self._q_pos
@@ -403,6 +442,55 @@ class RobotClient:
                 return  
             else:
                 self.joy_key = buttons
+
+    def _joy_handler_x2(self, msg):
+        if not self.remote_controller.set_joy(msg):
+            self.node.get_logger().error("Invalid X2 Joy message; use game_controller_node mapping.")
+            return
+        if not self.remote_controller.new_event:
+            return
+
+        buttons = self.remote_controller.button
+        try:
+            if self.remote_controller.is_exact_combo(buttons, [KeyMap.L2, KeyMap.up, KeyMap.left]):
+                if self._joy_future_x2 is not None and not self._joy_future_x2.done():
+                    self._joy_stop_requested_x2 = True
+                    return
+                self._joy_future_x2 = self.stop_control()
+            elif self._joy_future_x2 is not None and not self._joy_future_x2.done():
+                self.node.get_logger().warn("A joystick control request is still pending.")
+                return
+            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.L2, KeyMap.start]):
+                if self.control_start_time is not None:
+                    return
+                self._joy_future_x2 = self.init_control()
+            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.L1]):
+                if self.control_start_time is not None:
+                    self.node.get_logger().warn("Stop client control before requesting the ready position.")
+                    return
+                self._joy_future_x2 = self.goto_default_position()
+            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.R1]):
+                if self.control_start_time is not None:
+                    self.node.get_logger().warn("Stop client control before requesting the zero position.")
+                    return
+                self._joy_future_x2 = self.goto_zero_position()
+            else:
+                self.joy_key = copy(buttons)
+                return
+        except RuntimeError as error:
+            self.node.get_logger().error(str(error))
+            return
+        self._joy_future_x2.add_done_callback(self._joy_control_response_x2)
+
+    def _joy_control_response_x2(self, future):
+        if self._joy_stop_requested_x2:
+            self._joy_stop_requested_x2 = False
+            try:
+                self._joy_future_x2 = self.stop_control()
+            except RuntimeError as error:
+                self.node.get_logger().error(str(error))
+                return
+            self._joy_future_x2.add_done_callback(self._joy_control_response_x2)
 
     def _check_joint_state_message_x2(self, msg, message_count, active_count, group_name):
         from aimdk_msgs.msg import DomainErrorState
@@ -604,7 +692,9 @@ class RobotClient:
         if default_pos is None:
             default_pos = self._default_pos
 
-        while not self.start_control_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.start_control_client.service_is_ready():
+            raise RuntimeError("start_control_client service is unavailable.")
+        while self.robot_type != "X2" and not self.start_control_client.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().info('start_control service not available, waiting again...')
         
         request = SetDefaultPosition.Request()
@@ -619,7 +709,9 @@ class RobotClient:
         """
         Stop the control loop by calling the stop_control service.
         """        
-        while not self.stop_control_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.stop_control_client.service_is_ready():
+            raise RuntimeError("stop_control_client service is unavailable.")
+        while self.robot_type != "X2" and not self.stop_control_client.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().info('stop_control service not available, waiting again...')
 
         request = Trigger.Request()
@@ -629,14 +721,19 @@ class RobotClient:
             return future
         return future.result()
     
-    def _start_control_response_x2(self, future):
+    def _check_control_response_x2(self, future):
         try:
             response = future.result()
         except Exception as error:
-            self.node.get_logger().error(f"Start control request failed: {error}")
-            return
+            self.node.get_logger().error(f"Control request failed: {error}")
+            return False
         if not response.success:
-            self.node.get_logger().error(f"Start control rejected: {response.message}")
+            self.node.get_logger().error(f"Control request rejected: {response.message}")
+            return False
+        return True
+
+    def _start_control_response_x2(self, future):
+        if not self._check_control_response_x2(future):
             return
 
         # Wait for the default position transition before enabling client control
@@ -644,13 +741,7 @@ class RobotClient:
         self.control_started = False
 
     def _stop_control_response_x2(self, future):
-        try:
-            response = future.result()
-        except Exception as error:
-            self.node.get_logger().error(f"Stop control request failed: {error}")
-            return
-        if not response.success:
-            self.node.get_logger().error(f"Stop control rejected: {response.message}")
+        if not self._check_control_response_x2(future):
             return
 
         self.control_start_time = None
@@ -660,20 +751,30 @@ class RobotClient:
         """
         Send robot to default position by calling the ready_position_control service.
         """
-        while not self.ready_position_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.ready_position_client.service_is_ready():
+            raise RuntimeError("ready_position_client service is unavailable.")
+        while self.robot_type != "X2" and not self.ready_position_client.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().info('ready_position_control service not available, waiting again...')
 
         request = Trigger.Request()
         future = self.ready_position_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._check_control_response_x2)
+            return future
         return future.result()
         
     def goto_zero_position(self):
         """
         Send robot to zero position by calling the zero_position_control service.
         """
-        while not self.goto_zero_position_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.goto_zero_position_client.service_is_ready():
+            raise RuntimeError("goto_zero_position_client service is unavailable.")
+        while self.robot_type != "X2" and not self.goto_zero_position_client.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().info('zero_position_control service not available, waiting again...')
 
         request = Trigger.Request()
         future = self.goto_zero_position_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._check_control_response_x2)
+            return future
         return future.result()
