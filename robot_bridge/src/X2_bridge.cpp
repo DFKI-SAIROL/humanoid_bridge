@@ -121,7 +121,7 @@ bool sairol_bridge::X2Bridge::checkExternalPublisher_(std::string topic_name)
 
 void sairol_bridge::X2Bridge::stop()
 {
-    // Wait for the control thread to finish.
+    // Wait for the control thread to finish
     if (controlThread_.joinable())
     {
         controlThread_.join();
@@ -145,7 +145,7 @@ void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray:
         currentState_.motor_state[0 + i].q = msg->joints[i].position;
         currentState_.motor_state[0 + i].dq = msg->joints[i].velocity;
         currentState_.motor_state[0 + i].tau_est = msg->joints[i].effort;
-        // X2 does not provide joint acceleration; this is a placeholder.
+        // Joint acceleration is not provided; use a placeholder
         currentState_.motor_state[0 + i].ddq = 0.0;
     }
 
@@ -169,7 +169,7 @@ void sairol_bridge::X2Bridge::waistStateHandler_(aimdk_msgs::msg::JointStateArra
         currentState_.motor_state[12 + i].q = msg->joints[i].position;
         currentState_.motor_state[12 + i].dq = msg->joints[i].velocity;
         currentState_.motor_state[12 + i].tau_est = msg->joints[i].effort;
-        // X2 does not provide joint acceleration; this is a placeholder.
+        // Joint acceleration is not provided; use a placeholder
         currentState_.motor_state[12 + i].ddq = 0.0;
     }
 
@@ -193,7 +193,7 @@ void sairol_bridge::X2Bridge::armStateHandler_(aimdk_msgs::msg::JointStateArray:
         currentState_.motor_state[15 + i].q = msg->joints[i].position;
         currentState_.motor_state[15 + i].dq = msg->joints[i].velocity;
         currentState_.motor_state[15 + i].tau_est = msg->joints[i].effort;
-        // X2 does not provide joint acceleration; this is a placeholder.
+        // Joint acceleration is not provided; use a placeholder
         currentState_.motor_state[15 + i].ddq = 0.0;
     }
 
@@ -221,7 +221,7 @@ void sairol_bridge::X2Bridge::headStateHandler_(aimdk_msgs::msg::JointStateArray
         currentState_.motor_state[29 + i].q = msg->joints[i].position;
         currentState_.motor_state[29 + i].dq = msg->joints[i].velocity;
         currentState_.motor_state[29 + i].tau_est = msg->joints[i].effort;
-        // X2 does not provide joint acceleration; this is a placeholder.
+        // Joint acceleration is not provided; use a placeholder
         currentState_.motor_state[29 + i].ddq = 0.0;
     }
 
@@ -269,8 +269,8 @@ void sairol_bridge::X2Bridge::imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr 
     const double y = values[2] / norm;
     const double z = values[3] / norm;
 
-    // Preserve the HAL torso frame. Its alignment must be verified before robot control.
-    // Bridge quaternion order is w, x, y, z; angles are radians.
+    // Keep the HAL torso frame; verify alignment on the robot
+    // Quaternion order: w, x, y, z; angles in radians
     imu_.quaternion = {static_cast<float>(w), static_cast<float>(x),
                        static_cast<float>(y), static_cast<float>(z)};
     imu_.rpy[0] = std::atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y));
@@ -345,7 +345,7 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
             cmd.effort = cmdParams_[i].tau_0 + cmdParams_[i].tau_1 * phase;
         }
 
-        // Follow H1 position limiting; skip division when stiffness is zero.
+        // Limit position when stiffness is positive
         if (cmd.stiffness > 0.0)
         {
             cmd.position = std::clamp(cmd.position,
@@ -438,14 +438,14 @@ void sairol_bridge::X2Bridge::finishControl_() {
 
 bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr msg, size_t message_count, size_t state_offset, size_t active_count, std::string group_name)
 {
-    // Called with mutex_ held by the state callback; do not lock it again here.
+    // State callback already holds mutex_
     if (msg->joints.size() != message_count || currentState_.motor_state.size() < state_offset + active_count)
     {
         RCLCPP_ERROR(nh->get_logger(), "X2 %s state length mismatch.", group_name.c_str());
         return false;
     }
 
-    // Only the normal group state is accepted for control.
+    // Check group state
     if (msg->state.value != aimdk_msgs::msg::DomainErrorState::NONE)
     {
         RCLCPP_ERROR(nh->get_logger(), "X2 %s group reports state %u.", group_name.c_str(), msg->state.value);
@@ -472,8 +472,7 @@ bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStat
 
 bool sairol_bridge::X2Bridge::checkStateFreshness_()
 {
-    // Called by BridgeCore::checkState_ before the common data checks.
-    // Core calls this before acquiring mutex_. Do not call it with mutex_ already held.
+    // Core calls this without mutex_ held; do not lock it before this call
     std::unique_lock<std::mutex> lock(mutex_);
     const auto now = std::chrono::steady_clock::now();
     if ((!legStateValid_ || std::chrono::duration<double>(now - lastLegStateTime_).count() > legStateTimeout_))
@@ -503,7 +502,7 @@ bool sairol_bridge::X2Bridge::checkStateFreshness_()
     }
     if (checkComponentSkew_)
     {
-        // Joint meas_stamp and IMU stamp are assumed comparable; verify on the robot.
+        // Compare source timestamps; verify a common clock on the robot
         const builtin_interfaces::msg::Time stamps[] = {legStateStamp_, waistStateStamp_, armStateStamp_,
             enableHead_ ? headStateStamp_ : legStateStamp_,
             includeImuInTimeCheck_ ? imuStateStamp_ : legStateStamp_};

@@ -263,7 +263,54 @@ class RobotClient:
                   "\n- Zero position: R1"
                   )
 
-        self.low_state_subscription = self.node.create_subscription(LowState, state_topic_name, low_state_handler, 1)
+        elif self.robot_type == "X2":
+            from aimdk_msgs.msg import JointStateArray
+            from sensor_msgs.msg import Imu
+            from rclpy.qos import qos_profile_sensor_data
+
+            if self.num_dof not in (29, 30):
+                raise ValueError("X2 requires 29 joints without the head or 30 joints with head yaw.")
+
+            self._angular_acceleration = np.zeros(3, dtype=np.float32)
+
+            # Offline reference values; keep aligned with X2_config.yaml
+            self._default_pos = np.array([-0.05, 0.0, 0.0, 0.1, -0.05, 0.0,
+                                          -0.05, 0.0, 0.0, 0.1, -0.05, 0.0,
+                                           0.0, 0.0, 0.0,
+                                           0.4, 0.0, 0.0, -1.2, 0.0, 0.0, 0.0,
+                                           0.4, 0.0, 0.0, -1.2, 0.0, 0.0, 0.0,
+                                           0.0])[:self.num_dof]
+
+            self._default_kp = np.array([40.0, 40.0, 30.0, 80.0, 40.0, 20.0,
+                                        40.0, 40.0, 30.0, 80.0, 40.0, 20.0,
+                                        150.0, 300.0, 300.0,
+                                        30.0, 20.0, 20.0, 50.0, 50.0, 20.0, 20.0,
+                                        30.0, 20.0, 20.0, 50.0, 50.0, 20.0, 20.0,
+                                        20.0])[:self.num_dof]
+
+            self._default_kd = np.array([4.0, 4.0, 3.0, 8.0, 4.0, 2.0,
+                                        4.0, 4.0, 3.0, 8.0, 4.0, 2.0,
+                                        3.0, 3.0, 3.0,
+                                        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                                        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                                        1.0])[:self.num_dof]
+
+            self._default_duration = 1.5
+
+            self.leg_state_subscription = self.node.create_subscription(
+                JointStateArray, '/aima/hal/joint/leg/state', self._leg_state_handler_x2, qos_profile_sensor_data)
+            self.waist_state_subscription = self.node.create_subscription(
+                JointStateArray, '/aima/hal/joint/waist/state', self._waist_state_handler_x2, qos_profile_sensor_data)
+            self.arm_state_subscription = self.node.create_subscription(
+                JointStateArray, '/aima/hal/joint/arm/state', self._arm_state_handler_x2, qos_profile_sensor_data)
+            if self.num_dof == 30:
+                self.head_state_subscription = self.node.create_subscription(
+                    JointStateArray, '/aima/hal/joint/head/state', self._head_state_handler_x2, qos_profile_sensor_data)
+            self.imu_state_subscription = self.node.create_subscription(
+                Imu, '/aima/hal/imu/torso/state', self._imu_state_handler_x2, qos_profile_sensor_data)
+
+        if self.robot_type != "X2":
+            self.low_state_subscription = self.node.create_subscription(LowState, state_topic_name, low_state_handler, 1)
         # self.joystick_subscription = self.node.create_subscription(JoyMsg, joy_topic_name, joy_handler, 1)
         self.low_cmd_publisher = self.node.create_publisher(RobotCmd, '/robot_cmd', 1)
         
@@ -356,6 +403,89 @@ class RobotClient:
                 return  
             else:
                 self.joy_key = buttons
+
+    def _check_joint_state_message_x2(self, msg, message_count, active_count, group_name):
+        from aimdk_msgs.msg import DomainErrorState
+
+        if len(msg.joints) != message_count:
+            self.node.get_logger().error(f"X2 {group_name} state length mismatch.")
+            return False
+        if msg.state.value != DomainErrorState.NONE:
+            self.node.get_logger().error(f"X2 {group_name} group reports state {msg.state.value}.")
+            return False
+
+        max_value = np.finfo(np.float32).max
+        for joint in msg.joints[:active_count]:
+            values = (joint.position, joint.velocity, joint.effort)
+            if joint.error_code != 0 or not np.all(np.isfinite(values)) or np.any(np.abs(values) > max_value):
+                self.node.get_logger().error(f"X2 {group_name} joint has invalid data or error code {joint.error_code}.")
+                return False
+        return True
+
+    def _leg_state_handler_x2(self, msg):
+        if not self._check_joint_state_message_x2(msg, 12, 12, "leg"):
+            return
+
+        for i, joint in enumerate(msg.joints):
+            self._q_pos[i] = joint.position
+            self._q_vel[i] = joint.velocity
+            self._tau[i] = joint.effort
+
+    def _waist_state_handler_x2(self, msg):
+        if not self._check_joint_state_message_x2(msg, 3, 3, "waist"):
+            return
+
+        for i, joint in enumerate(msg.joints):
+            self._q_pos[12 + i] = joint.position
+            self._q_vel[12 + i] = joint.velocity
+            self._tau[12 + i] = joint.effort
+
+    def _arm_state_handler_x2(self, msg):
+        if not self._check_joint_state_message_x2(msg, 14, 14, "arm"):
+            return
+
+        for i, joint in enumerate(msg.joints):
+            self._q_pos[15 + i] = joint.position
+            self._q_vel[15 + i] = joint.velocity
+            self._tau[15 + i] = joint.effort
+
+    def _head_state_handler_x2(self, msg):
+        if self.num_dof != 30:
+            return
+        if not self._check_joint_state_message_x2(msg, 2, 1, "head"):
+            return
+
+        joint = msg.joints[0]
+        self._q_pos[29] = joint.position
+        self._q_vel[29] = joint.velocity
+        self._tau[29] = joint.effort
+
+    def _imu_state_handler_x2(self, msg):
+        if (msg.orientation_covariance[0] == -1.0 or
+                msg.angular_velocity_covariance[0] == -1.0 or
+                msg.linear_acceleration_covariance[0] == -1.0):
+            self.node.get_logger().error("X2 IMU reports unavailable measurements.")
+            return
+
+        values = np.array([
+            msg.orientation.w, msg.orientation.x, msg.orientation.y, msg.orientation.z,
+            msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z,
+            msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z
+        ], dtype=np.float64)
+        if not np.all(np.isfinite(values)) or np.any(np.abs(values) > np.finfo(np.float32).max):
+            self.node.get_logger().error("X2 IMU contains invalid values.")
+            return
+
+        norm = np.linalg.norm(values[:4])
+        if norm < 1e-12:
+            self.node.get_logger().error("X2 IMU quaternion has zero norm.")
+            return
+
+        # Keep the HAL torso frame; quaternion order: w, x, y, z
+        self._quat = (values[:4] / norm).astype(np.float32)
+        self._angular_velocity = values[4:7].astype(np.float32)
+        # Existing member stores linear acceleration
+        self._angular_acceleration = values[7:10].astype(np.float32)
 
     def update_robot_state(self):
         time_now = time.time()

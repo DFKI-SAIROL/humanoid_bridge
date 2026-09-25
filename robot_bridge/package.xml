@@ -20,6 +20,7 @@
   <depend>bridge_interface</depend>
   <depend>sensor_msgs</depend>
   <depend>booster_interface</depend>
+  <depend>aimdk_msgs</depend>
 
 
   <depend>unitree_go</depend>
