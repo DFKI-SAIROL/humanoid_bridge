@@ -610,6 +610,9 @@ class RobotClient:
         request = SetDefaultPosition.Request()
         request.default_position = default_pos.tolist()
         future = self.start_control_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._start_control_response_x2)
+            return future
         return future.result()
     
     def stop_control(self):
@@ -621,8 +624,38 @@ class RobotClient:
 
         request = Trigger.Request()
         future = self.stop_control_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._stop_control_response_x2)
+            return future
         return future.result()
     
+    def _start_control_response_x2(self, future):
+        try:
+            response = future.result()
+        except Exception as error:
+            self.node.get_logger().error(f"Start control request failed: {error}")
+            return
+        if not response.success:
+            self.node.get_logger().error(f"Start control rejected: {response.message}")
+            return
+
+        # Wait for the default position transition before enabling client control
+        self.control_start_time = time.time() + self._default_duration
+        self.control_started = False
+
+    def _stop_control_response_x2(self, future):
+        try:
+            response = future.result()
+        except Exception as error:
+            self.node.get_logger().error(f"Stop control request failed: {error}")
+            return
+        if not response.success:
+            self.node.get_logger().error(f"Stop control rejected: {response.message}")
+            return
+
+        self.control_start_time = None
+        self.control_started = False
+
     def goto_default_position(self):
         """
         Send robot to default position by calling the ready_position_control service.
