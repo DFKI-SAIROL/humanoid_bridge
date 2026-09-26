@@ -20,10 +20,8 @@ class RobotController:
         self.use_imu = use_imu
         if self.use_imu:
             base_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "floating_base_joint")
-            self.imu_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "imu_1")
-            if base_id < 0 or self.model.jnt_type[base_id] != mujoco.mjtJoint.mjJNT_FREE or self.imu_site_id < 0:
-                raise ValueError("IMU display requires floating_base_joint and the torso imu_1 site.")
-            self.base_body_id = self.model.jnt_bodyid[base_id]
+            if base_id < 0 or self.model.jnt_type[base_id] != mujoco.mjtJoint.mjJNT_FREE:
+                raise ValueError("IMU display requires floating_base_joint.")
             self.base_quat_index = self.model.jnt_qposadr[base_id] + 3
         self.qpos_index = []
         self.state_index = []
@@ -35,12 +33,15 @@ class RobotController:
             self.state_index.append(config[name]["idx"])
 
         self.robot = RobotClient(node=self.node, robot_type="X2", num_dof=self.num_dof, control_frequency=50.0, interpolation_order=0.0)
+        # The read-only viewer must not advertise a command publisher.
+        self.node.destroy_publisher(self.robot.low_cmd_publisher)
+        self.robot.low_cmd_publisher = None
         self.viewer = None
         self.timer = self.node.create_timer(0.02, self.step)  # 50 Hz display
         mujoco.mj_forward(self.model, self.data)
         print("Read-only X2 viewer. No commands or mode requests are sent.")
         if self.use_imu:
-            print("IMU orientation enabled; base position is fixed. Verify HAL orientation matches the torso imu_1 frame.")
+            print("Pelvis IMU orientation enabled; base position is fixed.")
         else:
             print("The base is fixed; IMU orientation is not applied.")
         print("Values may be initial zeros or stale data; RobotClient does not check freshness.")
@@ -58,16 +59,8 @@ class RobotController:
                 quat = np.asarray(self.robot.quat, dtype=np.float64)
                 norm = np.linalg.norm(quat)
                 if np.all(np.isfinite(quat)) and norm > 1e-12:
-                    # R_world_base = R_world_imu * inverse(R_base_imu)
-                    base_rotation = self.data.xmat[self.base_body_id].reshape(3, 3)
-                    imu_rotation = self.data.site_xmat[self.imu_site_id].reshape(3, 3)
-                    relative_rotation = base_rotation.T @ imu_rotation
-                    measured_rotation = np.empty(9)
-                    mujoco.mju_quat2Mat(measured_rotation, quat / norm)
-                    base_rotation = measured_rotation.reshape(3, 3) @ relative_rotation.T
-                    base_quat = np.empty(4)
-                    mujoco.mju_mat2Quat(base_quat, base_rotation.ravel())
-                    self.data.qpos[self.base_quat_index:self.base_quat_index + 4] = base_quat
+                    # The HAL torso topic provides pelvis orientation in w, x, y, z order.
+                    self.data.qpos[self.base_quat_index:self.base_quat_index + 4] = quat / norm
                     mujoco.mj_forward(self.model, self.data)
         self.viewer.sync()
 
@@ -76,7 +69,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Display X2 joint feedback in MuJoCo without controlling the robot.")
     parser.add_argument("--model", type=Path, default=Path.home() / "robotics/agibot_x2_urdf/X2_URDF-v1.3.0/scene.xml")
     parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[2] / "params/X2_config.yaml")
-    parser.add_argument("--use-imu", action="store_true", help="Apply torso IMU orientation while keeping base position fixed.")
+    parser.add_argument("--use-imu", action="store_true", help="Apply pelvis IMU orientation while keeping base position fixed.")
     args = parser.parse_args()
 
     rclpy.init()
