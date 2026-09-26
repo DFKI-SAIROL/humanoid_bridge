@@ -149,7 +149,7 @@ void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray:
         currentState_.motor_state[0 + i].ddq = 0.0;
     }
 
-    legStateStamp_ = msg->header.meas_stamp;
+    legStateStamp_ = msg->header.stamp;
     lastLegStateTime_ = std::chrono::steady_clock::now();
     legStateValid_ = true;
 }
@@ -173,7 +173,7 @@ void sairol_bridge::X2Bridge::waistStateHandler_(aimdk_msgs::msg::JointStateArra
         currentState_.motor_state[12 + i].ddq = 0.0;
     }
 
-    waistStateStamp_ = msg->header.meas_stamp;
+    waistStateStamp_ = msg->header.stamp;
     lastWaistStateTime_ = std::chrono::steady_clock::now();
     waistStateValid_ = true;
 }
@@ -197,7 +197,7 @@ void sairol_bridge::X2Bridge::armStateHandler_(aimdk_msgs::msg::JointStateArray:
         currentState_.motor_state[15 + i].ddq = 0.0;
     }
 
-    armStateStamp_ = msg->header.meas_stamp;
+    armStateStamp_ = msg->header.stamp;
     lastArmStateTime_ = std::chrono::steady_clock::now();
     armStateValid_ = true;
 }
@@ -225,7 +225,7 @@ void sairol_bridge::X2Bridge::headStateHandler_(aimdk_msgs::msg::JointStateArray
         currentState_.motor_state[29 + i].ddq = 0.0;
     }
 
-    headStateStamp_ = msg->header.meas_stamp;
+    headStateStamp_ = msg->header.stamp;
     lastHeadStateTime_ = std::chrono::steady_clock::now();
     headStateValid_ = true;
 }

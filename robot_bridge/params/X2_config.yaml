@@ -33,7 +33,7 @@ robot_bridge:
     check_component_skew: false
     include_imu_in_time_check: true
     # max_component_skew: set measured seconds before enabling
-    # Joints: meas_stamp; IMU: stamp. Verify their meaning and common clock on robot.
+    # Joints and IMU: header.stamp. Verify their meaning and common clock on robot.
 
 
     joint_names: ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",
