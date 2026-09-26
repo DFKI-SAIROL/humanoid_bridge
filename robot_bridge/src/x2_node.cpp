@@ -16,8 +16,17 @@ int main(int argc, char **argv)
 
     std::shared_ptr<sairol_bridge::BridgeCore> bridge;
 
-    auto x2_bridge = std::make_shared<sairol_bridge::X2Bridge>(nh);
-    bridge = x2_bridge;
+    try
+    {
+        auto x2_bridge = std::make_shared<sairol_bridge::X2Bridge>(nh);
+        bridge = x2_bridge;
+    }
+    catch (const std::exception &error)
+    {
+        RCLCPP_ERROR(nh->get_logger(), "X2 startup failed: %s", error.what());
+        rclcpp::shutdown();
+        return 1;
+    }
 
     if (bridge)
     {

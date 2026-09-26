@@ -13,6 +13,8 @@
 #include "sensor_msgs/msg/imu.hpp"
 #include "aimdk_msgs/msg/joint_command_array.hpp"
 #include "aimdk_msgs/msg/joint_state_array.hpp"
+#include "aimdk_msgs/srv/get_system_state.hpp"
+#include "aimdk_msgs/srv/migrate_system_state.hpp"
 
 
 namespace sairol_bridge {
@@ -38,6 +40,7 @@ private:
 
     bool initControl_(bridge_interface::msg::RobotCmd default_cmd) override;
     void finishControl_() override;
+    void enterDevelopMode_();
     bool checkExternalPublisher_(std::string topic_name);
 
     rclcpp::Subscription<aimdk_msgs::msg::JointStateArray>::SharedPtr legStateSubscriber_;

@@ -12,6 +12,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/JointCommandArray.msg"
   "msg/JointState.msg"
   "msg/JointStateArray.msg"
+  "msg/CommonRequest.msg"
+  "msg/CommonResponse.msg"
+  "msg/RequestHeader.msg"
+  "msg/ResponseHeader.msg"
+  "msg/CommonState.msg"
+  "msg/SystemStatus.msg"
+  "srv/GetSystemState.srv"
+  "srv/MigrateSystemState.srv"
   DEPENDENCIES builtin_interfaces
 )
 

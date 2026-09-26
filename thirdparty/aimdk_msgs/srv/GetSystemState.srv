@@ -1,0 +1,6 @@
+# Query the current system mode
+CommonRequest header
+---
+CommonResponse header
+string cur_state
+SystemStatus curr_status

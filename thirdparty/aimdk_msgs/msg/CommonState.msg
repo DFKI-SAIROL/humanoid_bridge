@@ -1,0 +1,14 @@
+int32 value
+
+int32 UNKNOWN = 0
+int32 SUCCESS = 1
+int32 FAILURE = 2
+int32 ABORTED = 3
+int32 TIMEOUT = 4
+int32 INVALID = 5
+int32 IN_MANUAL = 6
+
+int32 NOT_READY = 100
+int32 PENDING = 200
+int32 CREATED = 300
+int32 RUNNING = 400

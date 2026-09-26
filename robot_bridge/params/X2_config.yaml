@@ -22,6 +22,8 @@ robot_bridge:
     lower_limbs_kd_min: 0.0
     lower_limbs_kd_max: 8.0
 
+    develop_mode_timeout: 60.0 #startup mode transition timeout, seconds
+
     enable_head: true
     head_joint_count: 1
     leg_state_timeout: 0.2
