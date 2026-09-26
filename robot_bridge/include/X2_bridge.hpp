@@ -9,7 +9,6 @@
 #include <functional>
 #include <stdexcept>
 #include <cstdint>
-#include <atomic>
 #include "bridge_core.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "aimdk_msgs/msg/joint_command_array.hpp"
@@ -54,10 +53,6 @@ private:
     rclcpp::Publisher<aimdk_msgs::msg::JointCommandArray>::SharedPtr waistCommandPublisher_;
     rclcpp::Publisher<aimdk_msgs::msg::JointCommandArray>::SharedPtr armCommandPublisher_;
     rclcpp::Publisher<aimdk_msgs::msg::JointCommandArray>::SharedPtr headCommandPublisher_;
-
-    rclcpp::TimerBase::SharedPtr dampingTimer_;
-    std::vector<double> dampingKd_;
-    std::atomic<bool> dampingActive_{false};
 
     bool enableHead_{false};
     int headJointCount_{0};

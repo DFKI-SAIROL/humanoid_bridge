@@ -60,25 +60,6 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         maxComponentSkewNs_ = static_cast<int64_t>(nanoseconds);
     }
 
-    std::vector<std::string> joint_names;
-    nh->get_parameter("joint_names", joint_names);
-    dampingKd_.resize(numJoint_);
-    for (const auto &name : joint_names)
-    {
-        int index = -1;
-        double kd = 0.0;
-        if (!nh->get_parameter(name + ".idx", index) || index < 0 || index >= numJoint_ ||
-            !nh->get_parameter(name + ".damping_kd", kd) || !std::isfinite(kd) || kd <= 0.0)
-        {
-            throw std::invalid_argument("Invalid or missing damping_kd for " + name);
-        }
-        dampingKd_[index] = kd;
-    }
-    if (std::any_of(dampingKd_.begin(), dampingKd_.end(), [](double kd) { return kd <= 0.0; }))
-    {
-        throw std::invalid_argument("X2 requires damping_kd for every active joint.");
-    }
-
     enterDevelopMode_();
 
     auto qos = rclcpp::SensorDataQoS();
@@ -144,61 +125,6 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         headCommandPublisher_ = nh->create_publisher<aimdk_msgs::msg::JointCommandArray>(
             "/aima/hal/joint/head/command", qos);
     }
-    // Core stops its command loop after a fault; keep damping alive independently.
-    dampingTimer_ = nh->create_wall_timer(std::chrono::duration<double>(controlDt_), [this]() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        if (dampingActive_)
-        {
-            publishLowCommand_();
-        }
-    });
-
-    // Reject motion services while the fault is latched, with an explicit reply.
-    startControlService_.reset();
-    startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>("start_control",
-        [this](const std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Request> request,
-               std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Response> response) {
-            if (!dampingActive_)
-            {
-                startControlServiceCB_(request, response);
-            }
-            if (dampingActive_)
-            {
-                response->success = false;
-                response->message = "X2 fault damping is latched; resolve the fault and restart the bridge.";
-            }
-        });
-
-    readyPositionService_.reset();
-    readyPositionService_ = nh->create_service<std_srvs::srv::Trigger>("ready_position_control",
-        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
-               std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-            if (!dampingActive_)
-            {
-                readyPositionControlServiceCB_(request, response);
-            }
-            if (dampingActive_)
-            {
-                response->success = false;
-                response->message = "X2 fault damping is latched; resolve the fault and restart the bridge.";
-            }
-        });
-
-    zeroPositionService_.reset();
-    zeroPositionService_ = nh->create_service<std_srvs::srv::Trigger>("zero_position_control",
-        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
-               std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-            if (!dampingActive_)
-            {
-                zeroPositionControlServiceCB_(request, response);
-            }
-            if (dampingActive_)
-            {
-                response->success = false;
-                response->message = "X2 fault damping is latched; resolve the fault and restart the bridge.";
-            }
-        });
-
     RCLCPP_INFO(nh->get_logger(), "X2 Bridge ready; waiting for a client start request.");
 }
 
@@ -299,8 +225,6 @@ bool sairol_bridge::X2Bridge::checkExternalPublisher_(std::string topic_name)
 
 void sairol_bridge::X2Bridge::stop()
 {
-    dampingTimer_->cancel();
-
     // Wait for the control thread to finish
     if (controlThread_.joinable())
     {
@@ -497,53 +421,40 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
         auto &last_cmd = lastCommand_.motor_cmd[i];
         auto &joint_info = joints_[i];
 
-        if (dampingActive_)
+        if (1e-6 < cmdInterpOrder_ && cmdInterpOrder_ < 1.0 - 1e-6)
         {
-            // Use actuator-side damping even when feedback is stale or invalid.
-            cmd.position = 0.0;
-            cmd.velocity = 0.0;
-            cmd.effort = 0.0;
+            // Low pass filter for cmd
+            cmd.position = last_cmd.q * cmdInterpOrder_ + cmdParams_[i].q_0 * (1 - cmdInterpOrder_);
+            cmd.velocity = last_cmd.dq * cmdInterpOrder_ + cmdParams_[i].dq_0 * (1 - cmdInterpOrder_);
+        }
+        else {
+            // Interpolation
+            cmd.position = cmdParams_[i].q_0 + cmdParams_[i].q_1 * phase;
+            cmd.velocity = cmdParams_[i].dq_0 + cmdParams_[i].dq_1 * phase;
+        }
+
+        cmd.stiffness = cmdParams_[i].kp_0 + cmdParams_[i].kp_1 * phase;
+        cmd.damping = cmdParams_[i].kd_0 + cmdParams_[i].kd_1 * phase;
+        cmd.velocity = std::clamp<double>(cmd.velocity, -joint_info.dq_limit, joint_info.dq_limit);
+
+        if (torqueControl_)
+        {
+            cmd.effort = cmd.stiffness * (cmd.position - currentState_.motor_state[i].q) + cmd.damping * (cmd.velocity - currentState_.motor_state[i].dq) + cmdParams_[i].tau_0;
+            cmd.effort = std::clamp<double>(cmd.effort, -joint_info.tau_limit, joint_info.tau_limit);
             cmd.stiffness = 0.0;
-            cmd.damping = dampingKd_[i];
+            cmd.damping = 0.0;
         }
         else
         {
-            if (1e-6 < cmdInterpOrder_ && cmdInterpOrder_ < 1.0 - 1e-6)
-            {
-                // Low pass filter for cmd
-                cmd.position = last_cmd.q * cmdInterpOrder_ + cmdParams_[i].q_0 * (1 - cmdInterpOrder_);
-                cmd.velocity = last_cmd.dq * cmdInterpOrder_ + cmdParams_[i].dq_0 * (1 - cmdInterpOrder_);
-            }
-            else {
-                // Interpolation
-                cmd.position = cmdParams_[i].q_0 + cmdParams_[i].q_1 * phase;
-                cmd.velocity = cmdParams_[i].dq_0 + cmdParams_[i].dq_1 * phase;
-            }
+            cmd.effort = cmdParams_[i].tau_0 + cmdParams_[i].tau_1 * phase;
+        }
 
-            cmd.stiffness = cmdParams_[i].kp_0 + cmdParams_[i].kp_1 * phase;
-            cmd.damping = cmdParams_[i].kd_0 + cmdParams_[i].kd_1 * phase;
-            cmd.velocity = std::clamp<double>(cmd.velocity, -joint_info.dq_limit, joint_info.dq_limit);
-
-            if (torqueControl_)
-            {
-                cmd.effort = cmd.stiffness * (cmd.position - currentState_.motor_state[i].q) + cmd.damping * (cmd.velocity - currentState_.motor_state[i].dq) + cmdParams_[i].tau_0;
-                cmd.effort = std::clamp<double>(cmd.effort, -joint_info.tau_limit, joint_info.tau_limit);
-                cmd.stiffness = 0.0;
-                cmd.damping = 0.0;
-            }
-            else
-            {
-                cmd.effort = cmdParams_[i].tau_0 + cmdParams_[i].tau_1 * phase;
-            }
-
-            // Limit position when stiffness is positive
-            if (cmd.stiffness > 0.0)
-            {
-                cmd.position = std::clamp(cmd.position,
-                    (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) - joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q,
-                    (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) + joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q);
-            }
-
+        // Limit position when stiffness is positive
+        if (cmd.stiffness > 0.0)
+        {
+            cmd.position = std::clamp(cmd.position,
+                (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) - joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q,
+                (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) + joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q);
         }
 
         last_cmd.q = cmd.position;
@@ -586,10 +497,6 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
 
 bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
-    if (dampingActive_)
-    {
-        return false;
-    }
 
     for (int i = 0; i < numJoint_; ++i)
     {
@@ -631,10 +538,7 @@ bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd defau
 }
 
 void sairol_bridge::X2Bridge::finishControl_() {
-    // Serialize the latch with command publication; never resume automatically.
-    std::unique_lock<std::mutex> lock(mutex_);
-    dampingActive_ = true;
-    RCLCPP_ERROR(nh->get_logger(), "X2 fault damping active: kp=0, velocity=0, effort=0. Restart required to resume motion.");
+    RCLCPP_INFO(nh->get_logger(), "finishControl_ called from X2Bridge");
 }
 
 bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr msg, size_t message_count, size_t state_offset, size_t active_count, std::string group_name)
