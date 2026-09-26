@@ -73,9 +73,9 @@ private:
     std::chrono::steady_clock::time_point lastImuStateTime_;
     double imuStateTimeout_{0.2};
 
-    bool checkComponentSkew_{false};
+    bool checkComponentSkew_{true};
     bool includeImuInTimeCheck_{true};
-    int64_t maxComponentSkewNs_{0};
+    int64_t maxComponentSkewNs_{10000000};
     builtin_interfaces::msg::Time legStateStamp_;
     builtin_interfaces::msg::Time waistStateStamp_;
     builtin_interfaces::msg::Time armStateStamp_;
