@@ -3,4 +3,7 @@ WORKSPACE_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 source "$WORKSPACE_DIR/install_x2/local_setup.bash" || return 1
 
+# Use Fast DDS for X2 mode-service communication.
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
 echo "Sourced X2 workspace: $WORKSPACE_DIR/install_x2"

@@ -1,4 +1,5 @@
 #include "X2_bridge.hpp"
+#include "rmw/rmw.h"
 
 
 using namespace std::chrono_literals;
@@ -82,6 +83,21 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     imuStateSubscriber_ = nh->create_subscription<sensor_msgs::msg::Imu>(
         "/aima/hal/imu/torso/state", qos, std::bind(&sairol_bridge::X2Bridge::imuStateHandler_, this, std::placeholders::_1));
 
+    // Wait for state publishers before checking command ownership.
+    RCLCPP_INFO(nh->get_logger(), "Waiting for X2 joint and IMU state publishers...");
+    while (nh->count_publishers("/aima/hal/joint/leg/state") == 0 ||
+           nh->count_publishers("/aima/hal/joint/waist/state") == 0 ||
+           nh->count_publishers("/aima/hal/joint/arm/state") == 0 ||
+           (enableHead_ && nh->count_publishers("/aima/hal/joint/head/state") == 0) ||
+           nh->count_publishers("/aima/hal/imu/torso/state") == 0)
+    {
+        if (!rclcpp::ok())
+        {
+            throw std::runtime_error("X2 startup interrupted while waiting for state publishers.");
+        }
+        rclcpp::sleep_for(std::chrono::milliseconds(100));
+    }
+
     const auto publisher_deadline = std::chrono::steady_clock::now() + 10s;
     while (!checkExternalPublisher_("/aima/hal/joint/leg/command") ||
            !checkExternalPublisher_("/aima/hal/joint/waist/command") ||
@@ -109,6 +125,7 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         headCommandPublisher_ = nh->create_publisher<aimdk_msgs::msg::JointCommandArray>(
             "/aima/hal/joint/head/command", qos);
     }
+    RCLCPP_INFO(nh->get_logger(), "X2 Bridge ready; waiting for a client start request.");
 }
 
 void sairol_bridge::X2Bridge::enterDevelopMode_()
@@ -126,24 +143,41 @@ void sairol_bridge::X2Bridge::enterDevelopMode_()
     auto state_client = mode_node->create_client<aimdk_msgs::srv::GetSystemState>("/aimdk_5Fmsgs/srv/GetSystemState");
     auto mode_client = mode_node->create_client<aimdk_msgs::srv::MigrateSystemState>("/aimdk_5Fmsgs/srv/MigrateSystemState");
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout);
-    auto call_service = [&](auto client, auto request) {
-        request->header.header.stamp = mode_node->now();
-        auto future = client->async_send_request(request);
-        auto remaining = std::max(std::chrono::duration<double>::zero(),
-            std::chrono::duration<double>(deadline - std::chrono::steady_clock::now()));
-        if (rclcpp::spin_until_future_complete(mode_node, future, remaining) != rclcpp::FutureReturnCode::SUCCESS)
+    auto call_service = [&](auto client, auto request, int attempts) {
+        for (int attempt = 1; attempt <= attempts && rclcpp::ok(); ++attempt)
         {
-            throw std::runtime_error("X2 mode service timed out or was interrupted; verify robot mode before retrying.");
+            auto remaining = std::max(std::chrono::duration<double>::zero(),
+                std::chrono::duration<double>(deadline - std::chrono::steady_clock::now()));
+            if (remaining.count() <= 0.0)
+            {
+                break;
+            }
+            request->header.header.stamp = mode_node->now();
+            RCLCPP_INFO(mode_node->get_logger(), "Calling %s (attempt %d/%d)", client->get_service_name(), attempt, attempts);
+            auto future = client->async_send_request(request);
+            auto wait = attempts > 1 ? std::min(remaining, std::chrono::duration<double>(10.0)) : remaining;
+            auto result = rclcpp::spin_until_future_complete(mode_node, future, wait);
+            if (result == rclcpp::FutureReturnCode::SUCCESS)
+            {
+                auto response = future.get();
+                if (response->header.header.code != 0 || response->header.status.value != aimdk_msgs::msg::CommonState::SUCCESS)
+                {
+                    throw std::runtime_error("X2 mode service failed: " + response->header.message);
+                }
+                return response;
+            }
+            client->remove_pending_request(future);
+            if (result == rclcpp::FutureReturnCode::INTERRUPTED)
+            {
+                break;
+            }
+            RCLCPP_WARN(mode_node->get_logger(), "No reply from %s (attempt %d/%d)", client->get_service_name(), attempt, attempts);
         }
-        auto response = future.get();
-        if (response->header.header.code != 0 || response->header.status.value != aimdk_msgs::msg::CommonState::SUCCESS)
-        {
-            throw std::runtime_error("X2 mode service failed: " + response->header.message);
-        }
-        return response;
+        throw std::runtime_error(std::string(client->get_service_name()) + " timed out or was interrupted; verify robot mode before retrying.");
     };
     bool requested = false;
 
+    RCLCPP_INFO(nh->get_logger(), "X2 mode-service RMW: %s", rmw_get_implementation_identifier());
     RCLCPP_WARN(nh->get_logger(), "Entering Develop_MC disables native motion control.");
     while (rclcpp::ok() && std::chrono::steady_clock::now() < deadline)
     {
@@ -151,7 +185,8 @@ void sairol_bridge::X2Bridge::enterDevelopMode_()
         {
             continue;
         }
-        auto state = call_service(state_client, std::make_shared<aimdk_msgs::srv::GetSystemState::Request>());
+        auto state = call_service(state_client, std::make_shared<aimdk_msgs::srv::GetSystemState::Request>(), 3);
+        RCLCPP_INFO(mode_node->get_logger(), "Current mode: %s, status: %d", state->cur_state.c_str(), state->curr_status.value);
         if (state->cur_state == "Develop_MC" && state->curr_status.value == aimdk_msgs::msg::SystemStatus::IN_READY)
         {
             RCLCPP_INFO(nh->get_logger(), "X2 Develop_MC is ready.");
@@ -165,7 +200,7 @@ void sairol_bridge::X2Bridge::enterDevelopMode_()
             }
             auto request = std::make_shared<aimdk_msgs::srv::MigrateSystemState::Request>();
             request->state = "Develop_MC";
-            call_service(mode_client, request);
+            call_service(mode_client, request, 1);
             requested = true;
         }
         rclcpp::sleep_for(200ms);
@@ -181,7 +216,7 @@ bool sairol_bridge::X2Bridge::checkExternalPublisher_(std::string topic_name)
     {
         RCLCPP_ERROR_STREAM(nh->get_logger(),
                            "Detected " << publisher_count << " publishers on "
-                           << topic_name.c_str());
+                           << topic_name.c_str() << ". Waiting for external command publishers to exit.");
         return false;
     }
     return true;
@@ -462,6 +497,7 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
 
 bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
+
     for (int i = 0; i < numJoint_; ++i)
     {
         lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
