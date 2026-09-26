@@ -1,4 +1,6 @@
 import argparse
+import select
+import sys
 import time
 from pathlib import Path
 
@@ -44,139 +46,154 @@ def joint_target(start, delta, elapsed, duration):
 
 
 class RobotController:
-    def __init__(self, node, args, config):
+    def __init__(self, node, config):
         self.node = node
-        self.args = args
         self.config = config
+        self.names = config["joint_names"]
         self.num_dof = config["num_joint"]
-        names = config["joint_names"]
-        if len(names) != self.num_dof or [config[n]["idx"] for n in names] != list(range(self.num_dof)):
+        if len(self.names) != self.num_dof or [config[n]["idx"] for n in self.names] != list(range(self.num_dof)):
             raise ValueError("Joint names and indices must match the X2 feedback order.")
-        self.index = config[args.joint]["idx"]
-        self.kp = np.array([config[n]["kp"] for n in names])
-        self.kd = np.array([config[n]["kd"] for n in names])
-        self.q_min = np.array([config[n]["q_min"] for n in names])
-        self.q_max = np.array([config[n]["q_max"] for n in names])
+        self.kp, self.kd, self.q_min, self.q_max = (
+            np.array([config[n][key] for n in self.names]) for key in ("kp", "kd", "q_min", "q_max"))
         self.robot = TestRobotClient(node, self.num_dof, config)
-        self.delta = np.deg2rad(args.delta_deg)
         self.requested = False
-        self.last_print = 0.0
+        self.timer = None
+        self.start_q = None
+        self.moving = False
+
+    def prompt(self, text):
+        # Keep ROS callbacks and position holding running while waiting for input.
+        print(text, end="", flush=True)
+        while rclpy.ok():
+            rclpy.spin_once(self.node, timeout_sec=0.02)
+            if select.select([sys.stdin], [], [], 0)[0]:
+                line = sys.stdin.readline()
+                if not line or line.strip().lower() == "q":
+                    raise EOFError
+                return line.strip()
+        raise RuntimeError("ROS stopped.")
 
     def snapshot(self):
         self.robot.check_state()
         q = self.robot.q_pos.copy()
         invalid = (q < self.q_min) | (q > self.q_max) | ~np.isfinite(q)
         if np.any(invalid):
-            details = []
-            for i in np.flatnonzero(invalid):
-                actual, lower, upper = np.rad2deg([q[i], self.q_min[i], self.q_max[i]])
-                excess = max(lower - actual, actual - upper, 0.0) if np.isfinite(actual) else float("nan")
-                details.append(f"{self.config['joint_names'][i]}: actual={actual:+.3f} deg, "
-                               f"limits=[{lower:+.3f}, {upper:+.3f}] deg, excess={excess:.3f} deg")
-            raise ValueError("Starting positions outside configured limits:\n" + "\n".join(details) +
-                             "\nNo commands sent by this check; limits are unchanged.")
-        target = q[self.index] + self.delta
-        if not self.q_min[self.index] <= target <= self.q_max[self.index]:
-            raise ValueError("The selected trajectory exceeds configured position limits.")
-        if abs(self.delta) * np.pi / self.args.duration > self.config[self.args.joint]["dq_limit"]:
-            raise ValueError("The selected trajectory exceeds the configured velocity limit.")
+            details = [f"{self.names[i]}: {np.rad2deg(q[i]):+.2f} deg, "
+                       f"limits [{np.rad2deg(self.q_min[i]):+.2f}, {np.rad2deg(self.q_max[i]):+.2f}]"
+                       for i in np.flatnonzero(invalid)]
+            raise RuntimeError("Invalid starting posture:\n" + "\n".join(details))
         return q
 
-    def step(self):
-        self.robot.check_state()
-        elapsed = time.monotonic() - self.started
-        q = self.start_q.copy()
-        dq = np.zeros(self.num_dof)
-        q[self.index], dq[self.index] = joint_target(q[self.index], self.delta, elapsed, self.args.duration)
-        self.robot.send_cmd(q, dq, target_kp=self.kp, target_kd=self.kd)
-        if time.monotonic() - self.last_print >= 0.5:
-            actual = self.robot.q_pos[self.index]
-            other_error = np.delete(self.robot.q_pos - self.start_q, self.index)
-            phase = "HOLD AT START" if elapsed >= self.args.duration else "MOVING"
-            print(f"{phase}: target={q[self.index]:+.4f}, actual={actual:+.4f}, "
-                  f"error={actual-q[self.index]:+.4f} rad; other max error={np.max(np.abs(other_error)):.4f} rad", flush=True)
-            self.last_print = time.monotonic()
-
-    def run(self):
-        deadline = time.monotonic() + 3.0
-        while time.monotonic() < deadline:
-            rclpy.spin_once(self.node, timeout_sec=0.02)
-        preview = self.snapshot()
-        print(f"Joint: {self.args.joint}; start={preview[self.index]:.4f} rad; "
-              f"peak={preview[self.index]+self.delta:.4f} rad; round trip={self.args.duration:.1f} s")
-        print(f"All-joint holding gains from config: kp={self.kp.tolist()}, kd={self.kd.tolist()}")
-        if not self.args.enable_control:
-            print("READ-ONLY preview complete. No start request or commands sent.")
-            return
-        print("All joints will hold this posture. The selected joint will move once and return.")
-        print("Afterwards this program keeps publishing position hold until Ctrl+C.")
-        print("Ctrl+C only requests stop publishing; it does NOT provide damping or motor disable.")
-        if input("Robot supported and robot-side stop ready? Type MOVE to start: ").strip() != "MOVE":
-            return
-        deadline = time.monotonic() + 0.3
-        while time.monotonic() < deadline:
-            rclpy.spin_once(self.node, timeout_sec=0.02)
-        self.start_q = self.snapshot()
-        if np.max(np.abs(self.start_q - preview)) > 0.02:
-            raise RuntimeError("Posture changed since preview. Run again to review the new posture.")
-        if self.node.count_publishers('/robot_cmd') != 1:
-            raise RuntimeError("Another /robot_cmd publisher exists. Close other command clients first.")
-        if not self.robot.start_control_client.service_is_ready() or not self.robot.stop_control_client.service_is_ready():
-            raise RuntimeError("Bridge start/stop services are unavailable.")
-        self.requested = True
-        future = self.robot.init_control(default_pos=self.start_q)
-        rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
+    def wait_reply(self, future, timeout):
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=timeout)
         if not future.done() or future.exception() or not future.result().success:
-            raise RuntimeError("Start was not confirmed. Verify the robot; a timed-out request may still execute.")
+            raise RuntimeError("Bridge request was not confirmed; check robot-side control.")
+
+    def start(self, posture):
+        current = self.snapshot()
+        if np.max(np.abs(current - posture)) > 0.02:
+            raise RuntimeError("Posture changed during confirmation. Restart to capture the new posture.")
+        if self.node.count_publishers("/robot_cmd") != 1:
+            raise RuntimeError("Another /robot_cmd publisher exists. Close the other control client.")
+        if not self.robot.stop_control_client.service_is_ready():
+            raise RuntimeError("Bridge stop service is unavailable.")
+        self.start_q = posture.copy()
+        self.requested = True
+        self.wait_reply(self.robot.init_control(default_pos=self.start_q), 5.0)
         deadline = time.monotonic() + self.config["duration"] + 0.2
         while time.monotonic() < deadline:
             rclpy.spin_once(self.node, timeout_sec=0.02)
             self.robot.check_state()
-        self.started = time.monotonic()
         self.timer = self.node.create_timer(0.02, self.step)
-        rclpy.spin(self.node)
+
+    def step(self):
+        self.robot.check_state()
+        q = self.start_q.copy()
+        dq = np.zeros(self.num_dof)
+        if self.moving:
+            elapsed = time.monotonic() - self.started
+            q[self.index], dq[self.index] = joint_target(q[self.index], self.delta, elapsed, self.duration)
+            actual = self.robot.q_pos[self.index]
+            self.travel = max(self.travel, abs(actual - self.actual_start))
+            self.error = max(self.error, abs(actual - q[self.index]))
+            # Allow a short settling period before reporting the return error.
+            if elapsed >= self.duration + 0.5:
+                self.moving = False
+                print(f"完成 {self.names[self.index]}：实际最大位移 {np.rad2deg(self.travel):.2f}°，"
+                      f"最大跟踪误差 {np.rad2deg(self.error):.2f}°，"
+                      f"回位误差 {np.rad2deg(abs(actual - self.start_q[self.index])):.2f}°")
+                print("正在保持起始姿态，可继续选择关节。", flush=True)
+        self.robot.send_cmd(q, dq, target_kp=self.kp, target_kd=self.kd)
+
+    def run(self):
+        print("X2 交互测试：每次只动一个关节，其他关节保持首次确认的姿态。")
+        print("等待输入时继续保持；输入 q 或 Ctrl+C 请求停止发布并退出，不会切换机器人模式。")
+        for i, name in enumerate(self.names, 1):
+            print(f"{i:2d}  {name}")
+        while True:
+            try:
+                index = int(self.prompt("\n关节编号（q 退出）：")) - 1
+                if not 0 <= index < self.num_dof:
+                    raise ValueError("关节编号不在列表内。")
+                degrees = float(self.prompt("运动角度（度，默认 2，可填负数）：") or "2")
+                duration = float(self.prompt("往返时间（秒，默认 6）：") or "6")
+                if not np.isfinite(degrees) or not 0 < abs(degrees) <= 5:
+                    raise ValueError("角度须非零，范围 -5° 到 +5°。")
+                if not np.isfinite(duration) or duration < 2:
+                    raise ValueError("往返时间须至少 2 秒。")
+                posture = self.snapshot() if self.start_q is None else self.start_q
+                delta = np.deg2rad(degrees)
+                if not self.q_min[index] <= posture[index] + delta <= self.q_max[index]:
+                    raise ValueError("目标角度超出配置限位，请重新选择。")
+                if abs(delta) * np.pi / duration > self.config[self.names[index]]["dq_limit"]:
+                    raise ValueError("目标速度超限，请增加往返时间。")
+                print(f"{self.names[index]}：{np.rad2deg(posture[index]):+.2f}° → "
+                      f"{np.rad2deg(posture[index] + delta):+.2f}° → 起点，往返 {duration:g} 秒。")
+                if self.prompt("回车开始（q 退出）："):
+                    print("本次取消。")
+                    continue
+                if self.start_q is None:
+                    self.start(posture)
+                self.robot.check_state()
+                self.index, self.delta, self.duration = index, delta, duration
+                self.actual_start = self.robot.q_pos[index]
+                self.travel = self.error = 0.0
+                self.started = time.monotonic()
+                self.moving = True
+                while self.moving:
+                    rclpy.spin_once(self.node, timeout_sec=0.02)
+            except ValueError as error:
+                print(f"输入无效：{error}")
+
+    def close(self):
+        if self.timer is not None:
+            self.timer.cancel()
+        if self.requested:
+            try:
+                self.wait_reply(self.robot.stop_control(), 2.0)
+                print("Bridge 已确认停止发布；未切换阻尼或机器人模式。")
+            except Exception as error:
+                print(f"停止请求未确认：{error}，请使用机器人端停止方式。")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Preview or test one X2 joint while all others hold their starting positions.")
+    parser = argparse.ArgumentParser(description="Interactively test X2 joints while holding the initial posture.")
     parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[2] / "params/X2_config.yaml")
-    parser.add_argument("--joint", required=True, help="Exact joint name in X2_config.yaml.")
-    parser.add_argument("--delta-deg", type=float, required=True, help="Signed peak displacement in degrees, at most 5 degrees.")
-    parser.add_argument("--duration", type=float, default=6.0, help="Total outward-and-return time in seconds, at least 2.")
-    parser.add_argument("--enable-control", action="store_true", help="Allow a start request and whole-body position-hold commands after confirmation.")
     args = parser.parse_args()
-    if not np.isfinite(args.delta_deg) or not 0.0 < abs(args.delta_deg) <= 5.0:
-        parser.error("--delta-deg must be finite, nonzero and within [-5, 5]. This cap is not a validated safe amplitude.")
-    if not np.isfinite(args.duration) or args.duration < 2.0:
-        parser.error("--duration must be finite and at least 2 seconds.")
-    with open(args.config) as file:
-        config = yaml.safe_load(file)["robot_bridge"]["ros__parameters"]
-    if args.joint not in config["joint_names"]:
-        parser.error("Unknown joint. Choose from: " + ", ".join(config["joint_names"]))
+    config = yaml.safe_load(args.config.read_text())["robot_bridge"]["ros__parameters"]
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node("x2_joint_test")
     controller = None
     try:
-        controller = RobotController(node, args, config)
+        controller = RobotController(node, config)
         controller.run()
-    except KeyboardInterrupt:
-        print("Interrupted. Use the confirmed robot-side stop or takeover procedure.")
-    except (RuntimeError, ValueError) as error:
-        print(f"TEST ABORTED: {error}")
+    except (KeyboardInterrupt, EOFError):
+        print("\n退出测试。")
+    except RuntimeError as error:
+        print(f"测试中止：{error}")
     finally:
-        if controller is not None and controller.requested:
-            if hasattr(controller, "timer"):
-                controller.timer.cancel()
-            try:
-                if not rclpy.ok():
-                    raise RuntimeError("ROS context is shut down; stop request cannot be sent.")
-                future = controller.robot.stop_control()
-                rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
-                if not future.done() or future.exception() or not future.result().success:
-                    raise RuntimeError("Stop publishing was not confirmed.")
-                print("Bridge acknowledged stop publishing. This does not confirm a safe robot stop.")
-            except Exception as error:
-                print(f"STOP REQUEST FAILED: {error}. Use the robot-side stop.")
+        if controller is not None:
+            controller.close()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
