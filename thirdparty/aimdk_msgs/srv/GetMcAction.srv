@@ -1,0 +1,10 @@
+# Request.
+CommonRequest request
+
+---
+
+# Response header.
+ResponseHeader header
+
+# Action information.
+McActionInfo info

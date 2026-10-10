@@ -18,6 +18,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ResponseHeader.msg"
   "msg/CommonState.msg"
   "msg/SystemStatus.msg"
+  "msg/McAction.msg"
+  "msg/McActionStatus.msg"
+  "msg/McActionInfo.msg"
+  "srv/GetMcAction.srv"
   "srv/GetSystemState.srv"
   "srv/MigrateSystemState.srv"
   DEPENDENCIES builtin_interfaces
