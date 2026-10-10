@@ -18,7 +18,7 @@ robot_bridge:
     upper_limbs_kp_min: 0.0
     upper_limbs_kp_max: 50.0 #reference gain envelope, not hardware maximum
     upper_limbs_kd_min: 0.0
-    upper_limbs_kd_max: 1.0
+    upper_limbs_kd_max: 3.0 #SDK mc-rl policy gains; normal preparation gains below are unchanged
 
     lower_limbs_kp_min: 0.0
     lower_limbs_kp_max: 300.0 #legs + waist reference gain envelope
