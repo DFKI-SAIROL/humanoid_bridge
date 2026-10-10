@@ -127,7 +127,7 @@ class RobotController:
 
     def run(self):
         print("X2 交互测试：每次只动一个关节，其他关节保持首次确认的姿态。")
-        print("等待输入时继续保持；输入 q 或 Ctrl+C 请求停止发布并退出，不会切换机器人模式。")
+        print("等待输入时继续保持；输入 q 或 Ctrl+C 请求停止并退出；新版 X2 Bridge 将锁定阻尼，不会退出调试模式。")
         for i, name in enumerate(self.names, 1):
             print(f"{i:2d}  {name}")
         while True:
@@ -171,7 +171,7 @@ class RobotController:
         if self.requested:
             try:
                 self.wait_reply(self.robot.stop_control(), 2.0)
-                print("Bridge 已确认停止发布；未切换阻尼或机器人模式。")
+                print("Bridge 停止请求已确认；新版 X2 Bridge 将持续发阻尼，恢复控制需重启 Bridge。")
             except Exception as error:
                 print(f"停止请求未确认：{error}，请使用机器人端停止方式。")
 

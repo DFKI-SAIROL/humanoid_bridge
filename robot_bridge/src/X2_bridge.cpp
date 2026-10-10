@@ -60,6 +60,25 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         maxComponentSkewNs_ = static_cast<int64_t>(nanoseconds);
     }
 
+    std::vector<std::string> joint_names;
+    nh->get_parameter("joint_names", joint_names);
+    dampingKd_.resize(numJoint_);
+    for (const auto &name : joint_names)
+    {
+        int index = -1;
+        double kd = 0.0;
+        if (!nh->get_parameter(name + ".idx", index) || index < 0 || index >= numJoint_ ||
+            !nh->get_parameter(name + ".damping_kd", kd) || !std::isfinite(kd) || kd <= 0.0)
+        {
+            throw std::invalid_argument("Invalid or missing damping_kd for " + name);
+        }
+        dampingKd_[index] = kd;
+    }
+    if (std::any_of(dampingKd_.begin(), dampingKd_.end(), [](double kd) { return kd <= 0.0; }))
+    {
+        throw std::invalid_argument("X2 requires damping_kd for every active joint.");
+    }
+
     enterDevelopMode_();
 
     auto qos = rclcpp::SensorDataQoS();
@@ -125,6 +144,61 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         headCommandPublisher_ = nh->create_publisher<aimdk_msgs::msg::JointCommandArray>(
             "/aima/hal/joint/head/command", qos);
     }
+    // Core stops its command loop after stopping; continue damping on the executor.
+    dampingTimer_ = nh->create_wall_timer(std::chrono::duration<double>(controlDt_), [this]() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (dampingActive_)
+        {
+            publishDamping_();
+        }
+    });
+
+    // Reject motion services while damping is latched, with an explicit reply.
+    startControlService_.reset();
+    startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>("start_control",
+        [this](const std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Request> request,
+               std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Response> response) {
+            if (!dampingActive_)
+            {
+                startControlServiceCB_(request, response);
+            }
+            if (dampingActive_)
+            {
+                response->success = false;
+                response->message = "X2 stop damping is latched; inspect the robot and restart the bridge.";
+            }
+        });
+
+    readyPositionService_.reset();
+    readyPositionService_ = nh->create_service<std_srvs::srv::Trigger>("ready_position_control",
+        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+               std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+            if (!dampingActive_)
+            {
+                readyPositionControlServiceCB_(request, response);
+            }
+            if (dampingActive_)
+            {
+                response->success = false;
+                response->message = "X2 stop damping is latched; inspect the robot and restart the bridge.";
+            }
+        });
+
+    zeroPositionService_.reset();
+    zeroPositionService_ = nh->create_service<std_srvs::srv::Trigger>("zero_position_control",
+        [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+               std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+            if (!dampingActive_)
+            {
+                zeroPositionControlServiceCB_(request, response);
+            }
+            if (dampingActive_)
+            {
+                response->success = false;
+                response->message = "X2 stop damping is latched; inspect the robot and restart the bridge.";
+            }
+        });
+
     RCLCPP_INFO(nh->get_logger(), "X2 Bridge ready; waiting for a client start request.");
 }
 
@@ -225,6 +299,8 @@ bool sairol_bridge::X2Bridge::checkExternalPublisher_(std::string topic_name)
 
 void sairol_bridge::X2Bridge::stop()
 {
+    dampingTimer_->cancel();
+
     // Wait for the control thread to finish
     if (controlThread_.joinable())
     {
@@ -393,6 +469,13 @@ void sairol_bridge::X2Bridge::imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr 
 
 void sairol_bridge::X2Bridge::publishLowCommand_()
 {
+    // Core can call this once after finishControl_ in the same cycle.
+    if (dampingActive_)
+    {
+        publishDamping_();
+        return;
+    }
+
     rclcpp::Time current = nh->get_clock()->now();
 
     float_t phase = 1.0f;
@@ -497,6 +580,11 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
 
 bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
+    if (dampingActive_)
+    {
+        return false;
+    }
+
 
     for (int i = 0; i < numJoint_; ++i)
     {
@@ -538,7 +626,51 @@ bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd defau
 }
 
 void sairol_bridge::X2Bridge::finishControl_() {
-    RCLCPP_INFO(nh->get_logger(), "finishControl_ called from X2Bridge");
+    std::unique_lock<std::mutex> lock(mutex_);
+    controlStarted_ = false;
+    if (!dampingActive_.exchange(true))
+    {
+        RCLCPP_WARN(nh->get_logger(), "X2 stop damping active: posture hold released. Restart required to resume motion.");
+    }
+    publishDamping_();
+}
+
+void sairol_bridge::X2Bridge::stopControlServiceCB_(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+{
+    finishControl_();
+    response->success = true;
+    response->message = "X2 damping commands published and latched; physical stopping is not confirmed.";
+}
+
+void sairol_bridge::X2Bridge::publishDamping_()
+{
+    // Caller holds mutex_. No measured state or policy target is used here.
+    const auto stamp = nh->get_clock()->now();
+    const auto publish_group = [this, &stamp](auto publisher, int offset, int count, int active_count) {
+        aimdk_msgs::msg::JointCommandArray command;
+        command.header.stamp = stamp;
+        command.joints.resize(count);
+        for (int i = 0; i < active_count; ++i)
+        {
+            auto &joint = command.joints[i];
+            joint.position = 0.0;
+            joint.velocity = 0.0;
+            joint.effort = 0.0;
+            joint.stiffness = 0.0;
+            joint.damping = dampingKd_[offset + i];
+        }
+        publisher->publish(command);
+    };
+    publish_group(legCommandPublisher_, 0, 12, 12);
+    publish_group(waistCommandPublisher_, 12, 3, 3);
+    publish_group(armCommandPublisher_, 15, 14, 14);
+    if (enableHead_)
+    {
+        // Preserve the inactive head-pitch placeholder.
+        publish_group(headCommandPublisher_, 29, 2, 1);
+    }
 }
 
 bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr msg, size_t message_count, size_t state_offset, size_t active_count, std::string group_name)
