@@ -8,6 +8,7 @@ class Config:
         with open(file_path, "r") as f:
             config = yaml.safe_load(f)
 
+        self.data = config
         self.policy_path = (file_path.parent / config["policy_path"]).resolve()
         self.control_dt = config["control_dt"]
         self.history_length = config["history_length"]

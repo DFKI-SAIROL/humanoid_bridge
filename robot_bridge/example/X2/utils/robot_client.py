@@ -4,20 +4,12 @@ from robot_bridge_py.robot_client import RobotClient
 
 
 class PolicyRobotClient(RobotClient):
-    def __init__(self, node, config, areas, enable_control=False):
+    def __init__(self, node, config, areas):
         self.config = config
         self.areas = areas
         self.received = {}
         self.head_pitch = np.zeros(2, dtype=np.float32)
         super().__init__(node, "X2", 30, 50.0, interpolation_order=0.0, enable_joystick=False)
-        if enable_control:
-            return
-        # Preview mode has no command endpoints.
-        node.destroy_publisher(self.low_cmd_publisher)
-        self.low_cmd_publisher = None
-        for name in ("start_control_client", "stop_control_client", "ready_position_client", "goto_zero_position_client"):
-            node.destroy_client(getattr(self, name))
-            setattr(self, name, None)
 
     def _check_joint_state_message_x2(self, msg, message_count, active_count, group_name):
         names = self.areas[group_name]["joints"]
