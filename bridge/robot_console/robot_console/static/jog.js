@@ -143,7 +143,7 @@ async function selectMotor(name, push = true) {
   try {
     const reply = await postJSON(API.select, { name });
     if (reply && reply.ok === false) {
-      setBanner('select', 'warn', `<b>Server refused select</b>${escapeHtml(name)}`);
+      setBanner('select', 'warn', `<b>Select ${escapeHtml(name)} refused</b>${escapeHtml(reply.message || '')}`);
     } else {
       clearBanner('select');
     }
@@ -158,7 +158,8 @@ async function setLimp(limp) {
   try {
     const reply = await postJSON(API.mode, { limp });
     if (reply && reply.ok === false) {
-      setBanner('mode', 'warn', '<b>Server refused the limp-mode change</b>');
+      setBanner('mode', 'warn', `<b>Limp-mode change refused</b>${escapeHtml(reply.message || '')}`);
+      el('chk-limp').checked = state.limp; // back to what the server holds
     } else {
       clearBanner('mode');
     }
@@ -207,7 +208,7 @@ async function sendTarget(name, q) {
     const reply = await postJSON(API.target, { name, q });
     clearBanner('target');
     if (reply && reply.ok === false) {
-      setBanner('target', 'warn', '<b>Server refused the target</b>');
+      setBanner('target', 'warn', `<b>Target refused</b>${escapeHtml(reply.message || '')}`);
       return;
     }
     // Adopt the server's clamp, but never yank a slider the user is holding.
@@ -238,6 +239,7 @@ export function jogOnSnapshot(msg) {
   if (!msg || typeof msg !== 'object' || !Array.isArray(msg.motors)) return;
 
   state.lastFrameAt = performance.now();
+  state.yours = !!(msg.control && msg.control.yours);
   state.started = !!(msg.jog && msg.jog.active && msg.jog.alive);
   state.limp = !!(msg.jog && msg.jog.limp);
 
@@ -544,6 +546,9 @@ function frame() {
     updateRows();
     updatePanelReadouts();
     if (!el('chk-limp').matches(':focus')) el('chk-limp').checked = state.limp;
+    // Only the controlling tab may change the jog; the others watch.
+    el('chk-limp').disabled = !state.yours;
+    if (panel.motor) el('sel-slider').disabled = el('sel-num').disabled = !state.yours;
     setClass(el('limpstrip'), 'is-on', state.limp);
     viewer.applyPose(state.meas);
     markStale(false);

@@ -45,18 +45,18 @@ processes:
 EOF
 
 python3 "$HERE/fake_g1.py" "$OUT/lowcmd.json" > "$OUT/fake.log" 2>&1 &
-FAKE_PID=$!
+FAKE_PID=$!; disown "$FAKE_PID"  # no 'Killed' notice when cleanup kills it
 sleep 2
 
 setsid ros2 run robot_bridge G1_bridge --ros-args -r __node:=robot_bridge \
     --params-file "$PARAMS" > "$OUT/bridge.log" 2>&1 &
-BRIDGE_PID=$!
+BRIDGE_PID=$!; disown "$BRIDGE_PID"  # no 'Killed' notice when cleanup kills it
 sleep 4
 grep -q "G1 type:" "$OUT/bridge.log" || { echo "bridge did not come up:"; tail -20 "$OUT/bridge.log"; exit 1; }
 
 setsid ros2 run robot_console robot_console --config "$OUT/console.yaml" --port "$PORT" \
     --token-file "$OUT/token" --vendor "$OUT/vendor" > "$OUT/console.log" 2>&1 &
-CONSOLE_PID=$!
+CONSOLE_PID=$!; disown "$CONSOLE_PID"  # no 'Killed' notice when cleanup kills it
 for _ in $(seq 1 40); do
     grep -q "robot console on" "$OUT/console.log" 2>/dev/null && break
     sleep 0.25

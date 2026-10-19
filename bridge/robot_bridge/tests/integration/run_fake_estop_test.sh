@@ -20,12 +20,12 @@ trap cleanup EXIT
 command -v ros2 >/dev/null || { echo "source the ROS workspace first"; exit 1; }
 
 python3 "$HERE/fake_g1.py" "$OUT/lowcmd.json" > "$OUT/fake.log" 2>&1 &
-FAKE_PID=$!
+FAKE_PID=$!; disown "$FAKE_PID"  # no 'Killed' notice when cleanup kills it
 sleep 2
 
 setsid ros2 run robot_bridge G1_bridge --ros-args -r __node:=robot_bridge \
     --params-file "$PARAMS" > "$OUT/bridge.log" 2>&1 &
-BRIDGE_PID=$!
+BRIDGE_PID=$!; disown "$BRIDGE_PID"  # no 'Killed' notice when cleanup kills it
 sleep 4
 
 if ! grep -q "G1 type:" "$OUT/bridge.log"; then

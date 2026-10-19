@@ -7,7 +7,7 @@ console:
   bridge_config: ../../robot_bridge/params/G1_config.yaml
   lowstate: {topic: /lowstate, type: unitree_hg/msg/LowState}
   hands: true
-  # urdf: ~/.local/share/robot_console/g1_description/g1_29dof_with_hand.urdf   # scripts/fetch_assets.sh
+  urdf: ~/.local/share/robot_console/g1_description/g1_29dof_with_hand.urdf   # scripts/fetch_assets.sh
   # camera: http://192.168.123.164:5557/frame.jpg
 
 processes:
