@@ -229,3 +229,74 @@ def test_snapshot_shape(parts):
     }
     assert len(snap["motors"]) == 43
     assert snap["bridge"]["lowstate_age"] is None
+
+
+# --- the jog slew -------------------------------------------------------------
+
+
+class Clock:
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+def slewing(parts, catalog):
+    from robot_console.service import ConsoleService
+    from robot_console.session import ProbeSession
+
+    clock = Clock()
+    service = ConsoleService(parts[0]._config, catalog, ProbeSession(catalog), clock=clock)
+    client = controlled(service)
+    armed(service)
+    service.latch_jog_from_measured()
+    service.set_jog_active(True)
+    service.ping(client)
+    return service, client, clock
+
+
+def elbow(service):
+    return service.jog_commands()[1][BODY]["q"][18]
+
+
+def test_a_target_jump_becomes_a_ramp(parts, catalog):
+    service, client, clock = slewing(parts, catalog)
+    assert elbow(service) == pytest.approx(0.1), "seeded at the latched pose"
+    service.jog_target(client, "L_ELBOW", 1.1)
+    for _ in range(10):
+        clock.now += 0.02
+        service.ping(client)
+        q = elbow(service)
+    assert q == pytest.approx(0.1 + 0.5 * 0.2), "0.5 rad/s for 0.2 s"
+    service.jog_speed(client, 1.0)
+    clock.now += 0.02
+    assert elbow(service) - q == pytest.approx(1.0 * 0.02)
+
+
+def test_a_stalled_loop_does_not_jump(parts, catalog):
+    service, client, clock = slewing(parts, catalog)
+    elbow(service)
+    service.jog_target(client, "L_ELBOW", 1.1)
+    clock.now += 5.0  # the loop stalled
+    service.ping(client)
+    assert elbow(service) == pytest.approx(0.1 + 0.5 * 0.1), "one step is capped at SLEW_DT_MAX"
+
+
+def test_no_progress_without_the_deadman(parts, catalog):
+    service, client, clock = slewing(parts, catalog)
+    elbow(service)
+    service.jog_target(client, "L_ELBOW", 1.1)
+    clock.now += 1.0  # no ping for a second: not alive, nothing sent
+    assert elbow(service) == pytest.approx(0.1)
+
+
+def test_jog_speed_choices_and_control(parts):
+    service, *_ = parts
+    client = controlled(service)
+    service.jog_speed(client, 0.2)
+    assert service.snapshot(client)["jog"]["speed"] == 0.2
+    with pytest.raises(ValueError):
+        service.jog_speed(client, 3.0)
+    with pytest.raises(Refused):
+        service.jog_speed(service.connect(), 1.0)

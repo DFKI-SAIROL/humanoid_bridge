@@ -36,8 +36,8 @@ _OP_CLOSE = 0x8
 _OP_PING = 0x9
 _OP_PONG = 0xA
 
-# How often the stream socket pushes a snapshot.
-STREAM_PERIOD = 0.1
+# How often the stream socket pushes a snapshot: 20 Hz keeps the 3D view fluid.
+STREAM_PERIOD = 0.05
 CAMERA_TIMEOUT = 2.0
 CAMERA_MAX_BYTES = 8 * 1024 * 1024
 
@@ -288,6 +288,9 @@ class ConsoleHandler(BaseHTTPRequestHandler):
             }
         if path == "/api/jog/mode":
             service.jog_mode(client, bool(body["limp"]))
+            return {"ok": True}
+        if path == "/api/jog/speed":
+            service.jog_speed(client, float(body["speed"]))
             return {"ok": True}
         raise KeyError(path)
 

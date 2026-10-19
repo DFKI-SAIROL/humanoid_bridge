@@ -12,9 +12,11 @@ import time
 from .catalog import BODY, LEFT_HAND, RIGHT_HAND
 
 # Jog publish rate. The bridge invalidates a command at duration + 0.2 s, so at
-# 20 Hz a dropped stream latches `hold` (cmd_timeout) about a quarter second later.
-RATE = 20.0
+# 50 Hz with DURATION 0.04 s a dropped stream latches `hold` (cmd_timeout) about 0.24 s later.
+RATE = 50.0
 PERIOD = 1.0 / RATE
+# Each command interpolates over two periods: a late one does not stop the joint.
+DURATION = 2.0 * PERIOD
 
 HAND_SIDES = {LEFT_HAND: "left", RIGHT_HAND: "right"}
 
@@ -188,13 +190,16 @@ class RosLink:
         now = time.monotonic()
         if now < self._next_publish:
             return
-        self._next_publish = now + PERIOD
+        # A fixed schedule, not now + PERIOD, so loop latency does not lower the rate.
+        self._next_publish += PERIOD
+        if self._next_publish < now:
+            self._next_publish = now + PERIOD  # fell behind: no burst to catch up
         publish, commands = self.service.jog_commands()
         if not publish:
             return
         body = commands[BODY]
         self.client.send_cmd(
-            q_target_pos=body["q"], target_kp=body["kp"], target_kd=body["kd"], duration=PERIOD
+            q_target_pos=body["q"], target_kp=body["kp"], target_kd=body["kd"], duration=DURATION
         )
         if not self.hands:
             return
@@ -202,7 +207,7 @@ class RosLink:
             hand = commands[group]
             try:
                 self.client.send_hand_cmd(
-                    side, q=hand["q"], kp=hand["kp"], kd=hand["kd"], duration=PERIOD
+                    side, q=hand["q"], kp=hand["kp"], kd=hand["kd"], duration=DURATION
                 )
             except (ValueError, RuntimeError):
                 pass

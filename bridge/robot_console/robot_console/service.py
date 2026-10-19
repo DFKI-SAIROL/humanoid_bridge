@@ -19,6 +19,11 @@ from .session import ProbeSession
 
 ARMED = "ARMED"
 EVENTS_KEPT = 30
+GROUPS = (BODY, LEFT_HAND, RIGHT_HAND)
+# The jog moves toward the slider at most this fast (rad/s); the page offers these.
+JOG_SPEEDS = (0.2, 0.5, 1.0)
+DEFAULT_JOG_SPEED = 0.5
+SLEW_DT_MAX = 0.1  # a stalled loop must not turn into one big step
 REQUEST_TIMEOUT = 10.0
 
 
@@ -57,6 +62,9 @@ class ConsoleService:
         self._lowstate_at: float | None = None
         self._rpy = None
         self._jog_active = False
+        self._jog_speed = DEFAULT_JOG_SPEED
+        self._jog_q = None  # group -> the slewed q actually sent; None reseeds from the targets
+        self._jog_at = 0.0
 
     # --- clients and the control lock -------------------------------------
 
@@ -195,6 +203,13 @@ class ConsoleService:
             self._require_control(client)
             self._session.set_limp(limp)
 
+    def jog_speed(self, client, speed: float) -> None:
+        if speed not in JOG_SPEEDS:
+            raise ValueError(f"speed {speed}: expected one of {JOG_SPEEDS} rad/s")
+        with self._lock:
+            self._require_control(client)
+            self._jog_speed = float(speed)
+
     # --- reads ------------------------------------------------------------------
 
     def catalog_json(self) -> list:
@@ -212,7 +227,10 @@ class ConsoleService:
         processes = self._supervisor.snapshot() if self._supervisor else []
         now = self._clock()
         with self._lock:
-            commanded = {g: self._session.command(g) for g in (BODY, LEFT_HAND, RIGHT_HAND)}
+            commanded = {g: self._session.command(g) for g in GROUPS}
+            if self._jog_active and self._jog_q is not None:
+                for g in GROUPS:
+                    commanded[g]["q"] = self._jog_q[g]
             measured = dict(self._measured)
             motors = []
             for entry in self._catalog.entries:
@@ -253,6 +271,8 @@ class ConsoleService:
                     "alive": self._session.is_alive(now),
                     "limp": self._session.limp(),
                     "selected": self._session.selected(),
+                    "speed": self._jog_speed,
+                    "speeds": list(JOG_SPEEDS),
                 },
                 # The jog page reads these two at the top level, as motor_probe sent them.
                 "selected": self._session.selected(),
@@ -307,15 +327,35 @@ class ConsoleService:
     def set_jog_active(self, active: bool) -> None:
         with self._lock:
             self._jog_active = active
+            self._jog_q = None  # the next jog starts from its latched targets
             if active:
                 # The controller's next ping arms the deadman; until then nothing streams.
                 self._session.note_heartbeat(float("-inf"))
 
     def jog_commands(self):
-        """(publish?, {group: {q, kp, kd}}) under one lock, so the vectors agree."""
+        """(publish?, {group: {q, kp, kd}}); q moves toward the targets at most the jog speed."""
         with self._lock:
-            publish = self._jog_active and self._session.is_alive(self._clock())
-            return publish, {g: self._session.command(g) for g in (BODY, LEFT_HAND, RIGHT_HAND)}
+            now = self._clock()
+            publish = self._jog_active and self._session.is_alive(now)
+            commands = {g: self._session.command(g) for g in GROUPS}
+            if not self._jog_active:
+                self._jog_q = None
+                self._jog_at = now
+                return False, commands
+            if self._jog_q is None:
+                self._jog_q = {g: list(c["q"]) for g, c in commands.items()}
+            elif publish:
+                # A slider click or a fast drag becomes a ramp, not a jump.
+                step = self._jog_speed * min(max(now - self._jog_at, 0.0), SLEW_DT_MAX)
+                for g, c in commands.items():
+                    self._jog_q[g] = [
+                        prev + min(max(target - prev, -step), step)
+                        for prev, target in zip(self._jog_q[g], c["q"])
+                    ]
+            self._jog_at = now
+            for g, c in commands.items():
+                c["q"] = list(self._jog_q[g])
+            return publish, commands
 
     def note(self, level: str, text: str) -> None:
         with self._lock:

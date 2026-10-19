@@ -552,3 +552,6 @@ dialog h2 { margin-top: 0; font-size: 17px; }
   .grid { grid-template-columns: minmax(0, 1fr); padding: 10px; }
   .tab { padding: 8px 12px; }
 }
+
+.jogbar .speed { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.jogbar .speed select { padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-2); }

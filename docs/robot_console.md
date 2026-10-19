@@ -40,6 +40,7 @@ Status: implemented on `g1-web-interface`; unit and fake-robot tests pass; gantr
 | Child processes die with the console | a run without a page that shows it |
 | Jog deadman: no browser ping for 0.5 s stops the jog stream; the bridge then latches `hold` (`cmd_timeout`) | closing the tab stops the robot |
 | Ending a jog calls `/stop_control` first | a clean end must not latch |
+| The jog command slews toward the slider at the chosen max speed (0.2 / 0.5 / 1.0 rad/s, default 0.5) and is sent at 50 Hz with a 40 ms `duration` | a click on the slider is a ramp, not a jump |
 
 The latch and `/bridge_state` are valid on the G1 only; on other robots the
 safety bar says so.
@@ -127,7 +128,7 @@ WebSocket holds the lock. The lock frees when that socket closes.
 | Safety bar (every view, fixed on a phone) | state, E-STOP DAMP, HOLD, RESET, control lock; `Esc` = damp |
 | Control | arm, ready, stop; `/lowstate` age, roll/pitch |
 | Processes | one card per entry: params, Start/Stop, state, missing `requires`, prompt buttons, log tail |
-| Jog | the motor probe: list, slider, limp, 3D view |
+| Jog | the motor probe: list, slider, limp, max speed, 3D view |
 | Camera | the proxied JPEG at ~5 Hz |
 
 ## Tests

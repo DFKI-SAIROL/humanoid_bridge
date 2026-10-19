@@ -22,6 +22,7 @@ const API = {
   select: '/api/jog/select',
   target: '/api/jog/target',
   mode: '/api/jog/mode',
+  speed: '/api/jog/speed',
 };
 
 const TARGET_MIN_INTERVAL_MS = 50; // ~20 POST /api/jog/target per second
@@ -154,6 +155,21 @@ async function selectMotor(name, push = true) {
   }
 }
 
+async function setSpeed(speed) {
+  try {
+    const reply = await postJSON(API.speed, { speed });
+    if (reply && reply.ok === false) {
+      setBanner('speed', 'warn', `<b>Speed change refused</b>${escapeHtml(reply.message || '')}`);
+      el('sel-jog-speed').value = String(state.speed);
+    } else {
+      clearBanner('speed');
+    }
+  } catch (err) {
+    setBanner('speed', 'bad', `<b>Speed change failed</b>${escapeHtml(err.message)}`);
+    el('sel-jog-speed').value = String(state.speed);
+  }
+}
+
 async function setLimp(limp) {
   try {
     const reply = await postJSON(API.mode, { limp });
@@ -240,6 +256,7 @@ export function jogOnSnapshot(msg) {
 
   state.lastFrameAt = performance.now();
   state.yours = !!(msg.control && msg.control.yours);
+  if (msg.jog && Number.isFinite(msg.jog.speed)) state.speed = msg.jog.speed;
   state.started = !!(msg.jog && msg.jog.active && msg.jog.alive);
   state.limp = !!(msg.jog && msg.jog.limp);
 
@@ -548,6 +565,9 @@ function frame() {
     if (!el('chk-limp').matches(':focus')) el('chk-limp').checked = state.limp;
     // Only the controlling tab may change the jog; the others watch.
     el('chk-limp').disabled = !state.yours;
+    const speed = el('sel-jog-speed');
+    speed.disabled = !state.yours;
+    if (!speed.matches(':focus') && state.speed != null) speed.value = String(state.speed);
     if (panel.motor) el('sel-slider').disabled = el('sel-num').disabled = !state.yours;
     setClass(el('limpstrip'), 'is-on', state.limp);
     viewer.applyPose(state.meas);
@@ -907,6 +927,7 @@ function wireControls() {
   el('btn-jog-stop').addEventListener('click', () => control('stop'));
 
   el('chk-limp').addEventListener('change', (e) => setLimp(e.target.checked));
+  el('sel-jog-speed').addEventListener('change', (e) => setSpeed(Number(e.target.value)));
 
   const slider = el('sel-slider');
   slider.addEventListener('pointerdown', () => { panel.held = true; });

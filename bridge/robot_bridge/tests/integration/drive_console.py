@@ -235,7 +235,8 @@ class Driver:
             before = wire.robot_cmds
             time.sleep(0.5)
             flowed = wire.robot_cmds - before
-            self.check("/robot_cmd at ~20 Hz", 6 <= flowed <= 14, f"{flowed} in 0.5 s")
+            # Paced, not flooded: motor_probe's loop once sent ~200 here.
+            self.check("/robot_cmd paced at <= 50 Hz", 10 <= flowed <= 32, f"{flowed} in 0.5 s")
             tab.close()
             self.check(
                 "tab closed mid-jog: cmd_timeout hold",
