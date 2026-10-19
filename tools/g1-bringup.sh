@@ -155,6 +155,7 @@ else
         exit 1
     fi
     echo "   up"
+    echo "   e-stop: L1+R1 damp, R1+R2 hold (latched); clear with: ros2 service call /estop_reset std_srvs/srv/Trigger"
 fi
 
 # --- 4. arm ----------------------------------------------------------------
@@ -186,6 +187,6 @@ else
 fi
 
 echo
-echo "Armed. start_control answers success even when it failed, so check the"
-echo "ramp in /lowcmd rather than the reply. The first /robot_cmd cuts the ramp"
-echo "short, so arm before a client streams."
+echo "start_control answers success=false only while an e-stop is latched, and"
+echo "success=true for a wrong length, so check the ramp in /lowcmd rather than the"
+echo "reply. The first /robot_cmd cuts the ramp short, so arm before a client streams."

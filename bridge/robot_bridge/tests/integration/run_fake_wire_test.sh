@@ -43,4 +43,4 @@ sleep 1
 kill -TERM "$FAKE_PID"; wait "$FAKE_PID" 2>/dev/null || true; FAKE_PID=""
 
 echo
-python3 "$HERE/check_lowcmd.py" "$OUT/lowcmd.json" ${CONFIG:+--config "$CONFIG"}
+python3 "$HERE/check_lowcmd.py" "$OUT/lowcmd.json" --params "$PARAMS" ${CONFIG:+--config "$CONFIG"}

@@ -14,9 +14,6 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     lowStateSubscriber_ = nh->create_subscription<unitree_hg::msg::LowState>(
         "/lowstate", 1, std::bind(&sairol_bridge::G1Bridge::lowStateHandler_, this, std::placeholders::_1));
 
-    remoteControlSubscriber_ = nh->create_subscription<unitree_go::msg::WirelessController>(
-        "/wirelesscontroller", 10, std::bind(&sairol_bridge::G1Bridge::wireless_callback, this, std::placeholders::_1));
-
     while (!checkExternalPublisher_("/lowcmd"))
     {
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
@@ -123,50 +120,11 @@ void sairol_bridge::G1Bridge::stop()
     RCLCPP_INFO(nh->get_logger(), "G1 Bridge stopped.");
 }
 
-void sairol_bridge::G1Bridge::wireless_callback(unitree_go::msg::WirelessController::SharedPtr data)
-{
-    uint32_t key = data->keys;
-
-    if ((key & (KEY_L2 | KEY_UP | KEY_LEFT)) == (KEY_L2 | KEY_UP | KEY_LEFT))  // L2 + UP + LEFT : stop control
-    {
-        RCLCPP_INFO(nh->get_logger(), "Stopping control...");
-        if (controlStarted_) controlStarted_ = false;
-        return;
-    }
-
-    // if ((key & (KEY_L2 | KEY_START)) == (KEY_L2 | KEY_START))  // L2 + START : start control
-    // {
-    //     RCLCPP_INFO(nh->get_logger(), "Starting control...");
-    //     initControl_(bridge_interface::msg::RobotCmd());
-    //     return;
-    // }
-    // else if ((key & (KEY_L2 | KEY_UP | KEY_LEFT)) == (KEY_L2 | KEY_UP | KEY_LEFT))  // L2 + UP + LEFT : stop control
-    // {
-    //     RCLCPP_INFO(nh->get_logger(), "Stopping control...");
-    //     if (controlStarted_) controlStarted_ = false;
-    //     return;
-    // }
-    // else if (key & KEY_L1)  //L1 : Ready position
-    // {
-    //     RCLCPP_INFO(nh->get_logger(), "Ready position control...");
-    //     if (!controlStarted_) initControl_(bridge_interface::msg::RobotCmd());
-    //     readyPositionControl_();
-    //     calculateInterpolationParams_(duration_, 1, true);
-    //     return;
-    // }
-    // else if (key & KEY_R1)  // R1 : Zero position
-    // {
-    //     RCLCPP_INFO(nh->get_logger(), "Zero position control...");
-    //     if (!controlStarted_) initControl_(bridge_interface::msg::RobotCmd());
-    //     zeroPositionControl_();
-    //     calculateInterpolationParams_(duration_, 1, true);
-    //     return;
-    // }
-
-}
-
 void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::SharedPtr msg)
 {
+    // The IMU trip lives in checkState_ (control thread); this handler only copies.
+    std::unique_lock<std::mutex> lock(mutex_);
+
         // update mode machine
     if (mode_machine_ != msg->mode_machine) {
       if (mode_machine_ == 0) {
@@ -175,11 +133,6 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
       mode_machine_ = msg->mode_machine;
     }
 
-    if (std::abs(msg->imu_state.rpy[0]) > imu_rpy_threshold_ || std::abs(msg->imu_state.rpy[1]) > imu_rpy_threshold_)
-    {
-        RCLCPP_WARN(nh->get_logger(), "IMU base rpy values are too large: [%f, %f]", msg->imu_state.rpy[0], msg->imu_state.rpy[1]);
-        controlStarted_ = false;
-    }
     // Update the last state time using the same clock source
     last_state_time_ = nh->get_clock()->now();
 
@@ -216,6 +169,16 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     imu_.gyroscope = msg->imu_state.gyroscope;
     imu_.accelerometer = msg->imu_state.accelerometer;
     imu_.quaternion = msg->imu_state.quaternion;
+    lock.unlock();
+
+    // The remote rides on LowState at 500 Hz; /wirelesscontroller stays silent in debug mode.
+    const uint16_t keys = estop::remoteKeys(msg->wireless_remote.data(), msg->wireless_remote.size());
+    remoteKeys_ = keys;
+    const estop::Cause remote = estop::remoteOnset(estop::remoteCause(keys, estopConfig_), lastRemote_);
+    if (remote != estop::Cause::None)
+    {
+        enterStop_(remote);
+    }
 }
 
 void sairol_bridge::G1Bridge::publishLowCommand_()
@@ -331,6 +294,38 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
     calculateInterpolationParams_(duration_, 1, true);
 
     return true;
+}
+
+// mutex_ held (update_). Bypasses publishLowCommand_: its q clamp divides by kp.
+void sairol_bridge::G1Bridge::publishStopCommand_()
+{
+    unitree_hg::msg::LowCmd unitree_cmd;
+    unitree_cmd.mode_machine = mode_machine_;
+    unitree_cmd.mode_pr = PRorAB::PR;
+
+    const estop::Mode mode = latch_.mode();
+    for (int i = 0; i < numJoint_; ++i)
+    {
+        const auto frame = estop::stopFrame(mode, joints_[i], currentState_.motor_state[i].q,
+                                            holdQ_[i], estopConfig_.damp_kd);
+        auto &cmd = unitree_cmd.motor_cmd[i];
+        cmd.mode = 1; // Enable motor
+        cmd.q = frame.q;
+        cmd.dq = frame.dq;
+        cmd.kp = frame.kp;
+        cmd.kd = frame.kd;
+        cmd.tau = frame.tau;
+
+        // A re-arm interpolates from lastCommand_.
+        auto &last_cmd = lastCommand_.motor_cmd[i];
+        last_cmd.q = frame.q;
+        last_cmd.dq = frame.dq;
+        last_cmd.kp = frame.kp;
+        last_cmd.kd = frame.kd;
+        last_cmd.tau = frame.tau;
+    }
+    get_crc(unitree_cmd);
+    lowCommandPublisher_->publish(unitree_cmd);
 }
 
 void sairol_bridge::G1Bridge::finishControl_() {
@@ -687,6 +682,19 @@ void sairol_bridge::G1Bridge::publishHandCommand_()
         return;
     }
 
+    if (latched_)
+    {
+        for (int side = 0; side < NUM_HANDS; ++side)
+        {
+            if (hands_[side].live)
+            {
+                RCLCPP_WARN(nh->get_logger(), "E-stop latched; releasing the %s hand.",
+                            hands_[side].name.c_str());
+                hands_[side].live = false;
+            }
+        }
+    }
+
     const double now = nh->get_clock()->now().seconds();
 
     for (int side = 0; side < NUM_HANDS; ++side)
@@ -726,6 +734,14 @@ void sairol_bridge::G1Bridge::startHandControlServiceCB_(
     {
         response->success = false;
         response->message = "hand path is not configured; the config has no hand_* parameters";
+        return;
+    }
+
+    if (latched_)
+    {
+        response->success = false;
+        response->message = "e-stop latched; call /estop_reset first";
+        RCLCPP_WARN(nh->get_logger(), "Hand start refused: %s", response->message.c_str());
         return;
     }
 

@@ -10,10 +10,23 @@ BRIDGE_HZ = 1000.0  # control_dt: 0.001 in G1_config.yaml
 RAMP_SECONDS = 2.0  # `duration` in G1_config.yaml
 
 
+def close(a, b, tol=1e-3):
+    return all(abs(x - y) < tol for x, y in zip(a, b))
+
+
+def bridge_kp(path):
+    import yaml
+
+    with open(path) as handle:
+        params = yaml.safe_load(handle)["robot_bridge"]["ros__parameters"]
+    return [float(params[name]["kp"]) for name in params["joint_names"]]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("samples")
     parser.add_argument("--config", default=None)
+    parser.add_argument("--params", default=None, help="G1_config.yaml; checks the timeout hold")
     args = parser.parse_args()
 
     with open(args.samples) as handle:
@@ -44,7 +57,11 @@ def main():
         "q[0]={:.4f} wanted {}".format(ramped["q"][0], RAMP_DEFAULT),
     )
 
-    last = samples[-1]
+    # GEAR's stream ends in a command timeout, so the recording ends in hold
+    # frames at the bridge's own gains. The last tracking frame carries GEAR's.
+    tracking = [s for s in samples if close(s["kp"], config["MOTOR_KP"])]
+    check("tracked GEAR's gains", bool(tracking), f"{len(tracking)} samples")
+    last = tracking[-1] if tracking else samples[-1]
     want = fingerprint(n)
     check(
         "joint j lands on motor j",
@@ -55,6 +72,14 @@ def main():
     check("kd from config", all(abs(a - b) < 1e-3 for a, b in zip(last["kd"], config["MOTOR_KD"])))
     check("bridge forced mode 1", set(last["mode"]) == {1})
     check("bridge forced PR mode", last["mode_pr"] == 0)
+
+    if args.params:
+        tail = samples[-1]
+        check(
+            "timeout latches hold",
+            close(tail["kp"], bridge_kp(args.params)) and close(tail["q"], want),
+            "kp[0]={} q[0]={:.4f}".format(tail["kp"][0], tail["q"][0]),
+        )
 
     if failures:
         print("\n{} check(s) failed: {}".format(len(failures), ", ".join(failures)))

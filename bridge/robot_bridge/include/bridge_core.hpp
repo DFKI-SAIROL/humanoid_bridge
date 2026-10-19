@@ -8,7 +8,12 @@
 #include "bridge_interface/msg/imu_state.hpp"
 #include "bridge_interface/srv/set_default_position.hpp"
 #include "std_srvs/srv/trigger.hpp"
+#include "std_msgs/msg/string.hpp"
+#include "joint.hpp"
+#include "estop.hpp"
 
+#include <atomic>
+#include <string>
 #include <vector>
 #include <limits>
 #include <mutex>
@@ -19,21 +24,6 @@
 
 namespace sairol_bridge
 { 
-    typedef float float_t;
-
-    struct Joint
-    {
-        int idx;
-        float_t q_min{0};
-        float_t q_max{0};
-        float_t dq_limit{0};
-        float_t tau_limit{0};
-        float_t kp{0};
-        float_t kd{0};
-        bool if_strong_joint{false}; // Whether the joint is a strong joint
-        bool if_parallel_joint{false}; // Whether the joint is a parallel joint
-    };
-
     struct CmdParams
     {
         float_t q_0{0}, q_1{0};
@@ -80,8 +70,21 @@ namespace sairol_bridge
                             float_t kd_min, float_t kd_max,
                             size_t index, bool &clipped);
 
-        bool checkState_();
+        // Which fault the latest state shows, or None. Logs at most once a second.
+        estop::Cause checkState_();
         virtual void finishControl_() = 0;
+
+        // E-stop (docs/estop.md). Every stop goes through enterStop_, from any thread.
+        bool loadEstopParameters_();
+        void enterStop_(estop::Cause cause);
+        // The only way the arming services start control: refused while latched.
+        bool armControl_(bridge_interface::msg::RobotCmd default_cmd, std::string &why);
+        // Called by update_() with mutex_ held, while stopped. Default: silent.
+        virtual void publishStopCommand_() {}
+        void syncLatchFlags_();   // mutex_ held
+        std::string describeState_();
+        // mutex_ held for every state change, so two threads cannot publish out of order.
+        void publishBridgeState_(const std::string &state);
 
 
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr stopControlService_;
@@ -89,6 +92,10 @@ namespace sairol_bridge
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr zeroPositionService_;
         rclcpp::Service<bridge_interface::srv::SetDefaultPosition>::SharedPtr startControlService_;
         rclcpp::Subscription<bridge_interface::msg::RobotCmd>::SharedPtr desiredSubscriber_;
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr estopDampService_;
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr estopHoldService_;
+        rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr estopResetService_;
+        rclcpp::Publisher<std_msgs::msg::String>::SharedPtr bridgeStatePublisher_;
 
         std::vector<Joint> joints_;
         std::vector<CmdParams> cmdParams_;
@@ -118,9 +125,19 @@ namespace sairol_bridge
         float_t lower_limbs_kd_min_{0}, lower_limbs_kd_max_{0};
 
         bool torqueControl_{false};
-        bool controlStarted_{false};
+        std::atomic<bool> controlStarted_{false};   // tracking /robot_cmd
         bool receivedCmd_{false}; // Whether the control is initialized
         float_t imu_rpy_threshold_{1.0}; // Threshold for IMU roll/pitch in radians
+
+        // E-stop. latch_ and holdQ_ are guarded by mutex_; the atomics mirror
+        // latch_ for readers that must not lock.
+        estop::Config estopConfig_;
+        estop::SafetyLatch latch_;
+        std::vector<float_t> holdQ_;
+        std::atomic<bool> latched_{false};
+        std::atomic<bool> stopPublishing_{false};
+        std::atomic<uint16_t> remoteKeys_{0};
+        estop::Cause lastFault_{estop::Cause::None};   // control thread only
 
 
         virtual void stopControlServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
@@ -134,6 +151,15 @@ namespace sairol_bridge
 
         void startControlServiceCB_(const std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Request> request,
                                           std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Response> response);
+
+        void estopDampServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                                 std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+
+        void estopHoldServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                                 std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+
+        void estopResetServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                                  std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     };
 
 } // namespace sairol_bridge

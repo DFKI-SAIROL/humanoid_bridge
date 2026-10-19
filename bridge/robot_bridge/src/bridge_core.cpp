@@ -23,6 +23,7 @@ namespace sairol_bridge
         lastCommand_.motor_cmd.resize(numJoint_);
         currentState_.motor_state.resize(numJoint_);
         cmdParams_.resize(numJoint_);
+        holdQ_.assign(numJoint_, 0.0f);
 
         desiredSubscriber_ = nh->create_subscription<bridge_interface::msg::RobotCmd>(
             "/robot_cmd", 1, std::bind(&BridgeCore::robotCmdCallBack_, this, _1));
@@ -41,6 +42,20 @@ namespace sairol_bridge
 
         startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>(
             "start_control", std::bind(&BridgeCore::startControlServiceCB_, this, _1, _2));
+
+        estopDampService_ = nh->create_service<std_srvs::srv::Trigger>(
+            "estop_damp", std::bind(&BridgeCore::estopDampServiceCB_, this, _1, _2));
+
+        estopHoldService_ = nh->create_service<std_srvs::srv::Trigger>(
+            "estop_hold", std::bind(&BridgeCore::estopHoldServiceCB_, this, _1, _2));
+
+        estopResetService_ = nh->create_service<std_srvs::srv::Trigger>(
+            "estop_reset", std::bind(&BridgeCore::estopResetServiceCB_, this, _1, _2));
+
+        // Transient-local: a late subscriber still gets the current state.
+        bridgeStatePublisher_ = nh->create_publisher<std_msgs::msg::String>(
+            "/bridge_state", rclcpp::QoS(1).reliable().transient_local());
+        publishBridgeState_(describeState_());
 
         last_state_time_ = nh->get_clock()->now();
     }
@@ -200,6 +215,79 @@ namespace sairol_bridge
         assert(upper_limbs_kd_max_ >= upper_limbs_kd_min_ && "Upper limbs kd max must be greater than or equal to min");
         assert(lower_limbs_kp_max_ >= lower_limbs_kp_min_ && "Lower limbs kp max must be greater than or equal to min");
         assert(lower_limbs_kd_max_ >= lower_limbs_kd_min_ && "Lower limbs kd max must be greater than or equal to min");
+        return loadEstopParameters_();
+    }
+
+    bool BridgeCore::loadEstopParameters_()
+    {
+        // Every key is optional: a config without an `estop:` block gets the
+        // defaults in estop::Config. A key that is present but wrong fails the load.
+        nh->get_parameter("estop.damp_kd", estopConfig_.damp_kd);
+        if (!(estopConfig_.damp_kd > 0))
+        {
+            RCLCPP_ERROR(nh->get_logger(), "estop.damp_kd must be > 0, got %.3f", estopConfig_.damp_kd);
+            return false;
+        }
+
+        const std::pair<const char *, uint16_t *> combos[] = {
+            {"estop.remote_combo_damp", &estopConfig_.combo_damp},
+            {"estop.remote_combo_hold", &estopConfig_.combo_hold},
+        };
+        for (const auto &[key, combo] : combos)
+        {
+            std::vector<std::string> keys;
+            if (!nh->get_parameter(key, keys))
+            {
+                continue;
+            }
+            *combo = estop::parseCombo(keys);
+            if (*combo == 0)
+            {
+                RCLCPP_ERROR(nh->get_logger(), "%s: empty, or a key name that is not on the remote", key);
+                return false;
+            }
+        }
+        if (estopConfig_.combo_damp == estopConfig_.combo_hold)
+        {
+            RCLCPP_ERROR(nh->get_logger(), "estop.remote_combo_damp and remote_combo_hold are the same");
+            return false;
+        }
+
+        const std::pair<const char *, estop::Mode *> modes[] = {
+            {"estop.mode.stop", &estopConfig_.stop},
+            {"estop.mode.imu", &estopConfig_.imu},
+            {"estop.mode.state_loss", &estopConfig_.state_loss},
+            {"estop.mode.state_invalid", &estopConfig_.state_invalid},
+            {"estop.mode.cmd_timeout", &estopConfig_.cmd_timeout},
+        };
+        for (const auto &[key, mode] : modes)
+        {
+            std::string text;
+            if (nh->get_parameter(key, text) && !estop::parseMode(text, *mode))
+            {
+                RCLCPP_ERROR(nh->get_logger(), "%s must be damp or hold, got '%s'", key, text.c_str());
+                return false;
+            }
+        }
+
+        // Hold mode divides by kp for its torque window.
+        for (size_t i = 0; i < joints_.size(); ++i)
+        {
+            if (!(joints_[i].kp > 0) || joints_[i].kd < 0)
+            {
+                RCLCPP_ERROR(nh->get_logger(), "joint %zu: e-stop hold needs kp > 0 and kd >= 0", i);
+                return false;
+            }
+        }
+
+        latch_ = estop::SafetyLatch(estopConfig_);
+        RCLCPP_INFO(nh->get_logger(),
+                    "E-stop: damp_kd %.1f, remote combos 0x%04x damp / 0x%04x hold; modes stop %s, imu %s, "
+                    "state_loss %s, state_invalid %s, cmd_timeout %s",
+                    estopConfig_.damp_kd, estopConfig_.combo_damp, estopConfig_.combo_hold,
+                    estop::name(estopConfig_.stop), estop::name(estopConfig_.imu),
+                    estop::name(estopConfig_.state_loss), estop::name(estopConfig_.state_invalid),
+                    estop::name(estopConfig_.cmd_timeout));
         return true;
     }
 
@@ -258,27 +346,36 @@ namespace sairol_bridge
         auto rate = rclcpp::Rate(1.0 / controlDt_);
         while (rclcpp::ok())
         {
-            if (controlStarted_)
+            // Faults are checked while anything is published: a fault while
+            // stopped in hold still escalates to damp.
+            if (controlStarted_ || stopPublishing_)
             {
-                // Safety check
-                if (not checkState_())
+                // Onset only: a lasting fault must not undo an operator hold every cycle.
+                const estop::Cause fault = estop::faultOnset(checkState_(), lastFault_);
+                if (fault != estop::Cause::None)
                 {
-                    RCLCPP_ERROR(nh->get_logger(), "Robot state check failed. Please inspect the robot carefully.");
-                    controlStarted_ = false;
+                    enterStop_(fault);
                 }
-
-                controlStarted_ &= (nh->get_clock()->now()).seconds() <= tValid_;
-
-                if (!controlStarted_)
+                else if (controlStarted_ && nh->get_clock()->now().seconds() > tValid_)
                 {
-                    finishControl_();
-                    RCLCPP_ERROR(nh->get_logger(), "Control finished due to safety check or time out.");
+                    enterStop_(estop::Cause::CmdTimeout);
                 }
 
                 std::unique_lock<std::mutex> lock(mutex_);
-                // Update the low command
-                publishLowCommand_();
+                // Not while latched: a fault can land between initControl_ and commitArm.
+                if (controlStarted_ && !latch_.latched())
+                {
+                    publishLowCommand_();
+                }
+                else if (latch_.publishing())
+                {
+                    publishStopCommand_();
+                }
                 lock.unlock();
+            }
+            else
+            {
+                lastFault_ = estop::Cause::None;   // not watched: the next fault is an onset
             }
             rate.sleep();
         }
@@ -342,70 +439,162 @@ namespace sairol_bridge
         }
     }
 
-    bool BridgeCore::checkState_()
+    estop::Cause BridgeCore::checkState_()
     {
+        // Copy under the lock: lowStateHandler_ writes these on the executor thread.
+        std::unique_lock<std::mutex> lock(mutex_);
+        const rclcpp::Time last_state_time = last_state_time_;
+        const auto motor_state = currentState_.motor_state;
+        const auto imu = imu_;
+        lock.unlock();
 
-        auto dt_state_ = (nh->get_clock()->now() - last_state_time_).seconds();
+        auto &clock = *nh->get_clock();
+        const auto dt_state_ = (clock.now() - last_state_time).seconds();
 
         // Check if the state message is received within the expected interval
         if (dt_state_ > 0.2)
         {
-            RCLCPP_ERROR(nh->get_logger(),
-                         "Robot signal lost! No LowState message received for %.2f seconds. "
-                         "Expected interval ~0.002s (500Hz). Shutting down the node to prevent unsafe operation.",
-                         dt_state_);
-            return false;
+            RCLCPP_ERROR_THROTTLE(nh->get_logger(), clock, 1000,
+                                  "Robot signal lost! No LowState message received for %.2f seconds. "
+                                  "Expected interval ~0.002s (500Hz).",
+                                  dt_state_);
+            return estop::Cause::StateLoss;
         }
         // Check if the state message has valid data
-        if (currentState_.motor_state.size() != numJoint_)
+        if (motor_state.size() != static_cast<size_t>(numJoint_))
         {
-            RCLCPP_ERROR(nh->get_logger(),
-                         "Motor state length mismatch: expected %d, got %ld",
-                         numJoint_, currentState_.motor_state.size());
-            return false;
+            RCLCPP_ERROR_THROTTLE(nh->get_logger(), clock, 1000,
+                                  "Motor state length mismatch: expected %d, got %ld",
+                                  numJoint_, motor_state.size());
+            return estop::Cause::StateInvalid;
         }
         // Check if the motor state values are valid (not NaN or Inf) and within limits
-        for (size_t i = 0; i < numJoint_; ++i)
+        for (size_t i = 0; i < static_cast<size_t>(numJoint_); ++i)
         {
-            const auto &motor = currentState_.motor_state[i];
+            const auto &motor = motor_state[i];
             if (!std::isfinite(motor.q) || !std::isfinite(motor.dq) ||
                 !std::isfinite(motor.ddq) || !std::isfinite(motor.tau_est))
             {
-                RCLCPP_ERROR(nh->get_logger(),
-                             "Motor state at index %lu contains invalid (NaN/Inf) values.", i);
-                return false;
+                RCLCPP_ERROR_THROTTLE(nh->get_logger(), clock, 1000,
+                                      "Motor state at index %lu contains invalid (NaN/Inf) values.", i);
+                return estop::Cause::StateInvalid;
             }
 
             const auto &joint = joints_[i];
 
             if (std::abs(motor.dq) > joint.dq_limit)
             {
-                RCLCPP_ERROR(nh->get_logger(),
-                             "Joint [%lu] dq (%.3f) exceeds limit (%.3f).",
-                             i, motor.dq, joint.dq_limit);
-                return false;
+                RCLCPP_ERROR_THROTTLE(nh->get_logger(), clock, 1000,
+                                      "Joint [%lu] dq (%.3f) exceeds limit (%.3f).",
+                                      i, motor.dq, joint.dq_limit);
+                return estop::Cause::StateInvalid;
             }
         }
 
         // Check if the IMU state values are valid (not NaN or Inf)
         for (int i = 0; i < 3; ++i)
         {
-            if (!std::isfinite(imu_.rpy[i]) ||
-                !std::isfinite(imu_.gyroscope[i]) ||
-                !std::isfinite(imu_.accelerometer[i]))
+            if (!std::isfinite(imu.rpy[i]) ||
+                !std::isfinite(imu.gyroscope[i]) ||
+                !std::isfinite(imu.accelerometer[i]))
             {
-                RCLCPP_ERROR(nh->get_logger(),
-                             "IMU state contains invalid (NaN/Inf) values at index %d.", i);
-                return false;
+                RCLCPP_ERROR_THROTTLE(nh->get_logger(), clock, 1000,
+                                      "IMU state contains invalid (NaN/Inf) values at index %d.", i);
+                return estop::Cause::StateInvalid;
             }
         }
 
-        if (std::abs(imu_.rpy[0]) > imu_rpy_threshold_ || std::abs(imu_.rpy[1]) > imu_rpy_threshold_)
+        if (std::abs(imu.rpy[0]) > imu_rpy_threshold_ || std::abs(imu.rpy[1]) > imu_rpy_threshold_)
         {
-            RCLCPP_WARN(nh->get_logger(), "IMU base rpy values are too large: [%f, %f]", imu_.rpy[0], imu_.rpy[1]);
+            RCLCPP_WARN_THROTTLE(nh->get_logger(), clock, 1000,
+                                 "IMU base rpy values are too large: [%f, %f]", imu.rpy[0], imu.rpy[1]);
+            return estop::Cause::Imu;
+        }
+
+        return estop::Cause::None;
+    }
+
+    void BridgeCore::syncLatchFlags_()
+    {
+        latched_ = latch_.latched();
+        stopPublishing_ = latch_.publishing();
+    }
+
+    std::string BridgeCore::describeState_()
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return latch_.describe(controlStarted_);
+    }
+
+    void BridgeCore::publishBridgeState_(const std::string &state)
+    {
+        std_msgs::msg::String message;
+        message.data = state;
+        bridgeStatePublisher_->publish(message);
+    }
+
+    void BridgeCore::enterStop_(estop::Cause cause)
+    {
+        estop::Transition transition;
+        std::string state;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            const bool was_tracking = controlStarted_.exchange(false);
+            transition = latch_.trigger(cause, was_tracking);
+            if (transition.snapshot)
+            {
+                for (int i = 0; i < numJoint_; ++i)
+                {
+                    holdQ_[i] = currentState_.motor_state[i].q;
+                }
+            }
+            syncLatchFlags_();
+            state = latch_.describe(controlStarted_);
+            if (transition.changed)
+            {
+                publishBridgeState_(state);
+            }
+        }
+
+        if (!transition.changed)
+        {
+            return;
+        }
+        RCLCPP_WARN(nh->get_logger(), "Stop (%s): %s", estop::name(cause), state.c_str());
+        finishControl_();
+    }
+
+    bool BridgeCore::armControl_(bridge_interface::msg::RobotCmd default_cmd, std::string &why)
+    {
+        uint64_t generation = 0;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (latch_.latched())
+            {
+                why = latch_.describe(false) + "; call /estop_reset first";
+                return false;
+            }
+            generation = latch_.generation();
+        }
+
+        // initControl_ sets controlStarted_; update_() then publishes tracking
+        // frames, which take priority over the stop frame.
+        if (!initControl_(default_cmd))
+        {
+            controlStarted_ = false;
+            why = "initControl_ failed";
             return false;
         }
 
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!latch_.commitArm(generation))
+        {
+            controlStarted_ = false;
+            why = "a stop arrived while arming: " + latch_.describe(false);
+            return false;
+        }
+        syncLatchFlags_();
+        publishBridgeState_(latch_.describe(controlStarted_));
         return true;
     }
 
@@ -507,18 +696,77 @@ namespace sairol_bridge
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
-        if (controlStarted_) controlStarted_ = false;
         RCLCPP_INFO(nh->get_logger(), "Stopping control...");
+        enterStop_(estop::Cause::Stop);
         response->success = true;
-        response->message = "Stop control service activated";
+        response->message = describeState_();
+    }
+
+    void BridgeCore::estopDampServiceCB_(
+        const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+        std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    {
+        enterStop_(estop::Cause::ServiceDamp);
+        response->success = true;
+        response->message = describeState_();
+    }
+
+    void BridgeCore::estopHoldServiceCB_(
+        const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+        std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    {
+        enterStop_(estop::Cause::ServiceHold);
+        response->success = true;
+        response->message = describeState_();
+    }
+
+    void BridgeCore::estopResetServiceCB_(
+        const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+        std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    {
+        estop::Cause present = checkState_();
+        if (present == estop::Cause::None)
+        {
+            present = estop::remoteCause(remoteKeys_, estopConfig_);
+        }
+
+        std::string why, state;
+        bool ok = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ok = latch_.reset(present != estop::Cause::None, why);
+            syncLatchFlags_();
+            state = latch_.describe(controlStarted_);
+            if (ok)
+            {
+                publishBridgeState_(state);
+            }
+        }
+
+        response->success = ok;
+        if (!ok)
+        {
+            response->message = "reset refused: " + why +
+                                (present != estop::Cause::None ? std::string(" (") + estop::name(present) + ")" : "");
+            RCLCPP_WARN(nh->get_logger(), "%s", response->message.c_str());
+            return;
+        }
+        response->message = state;
+        RCLCPP_WARN(nh->get_logger(), "E-stop reset: %s", state.c_str());
     }
 
     void BridgeCore::readyPositionControlServiceCB_(
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
-        if (!controlStarted_)
-            initControl_(bridge_interface::msg::RobotCmd());
+        std::string why;
+        if (!controlStarted_ && !armControl_(bridge_interface::msg::RobotCmd(), why))
+        {
+            RCLCPP_WARN(nh->get_logger(), "Ready position refused: %s", why.c_str());
+            response->success = false;
+            response->message = why;
+            return;
+        }
         readyPositionControl_();
         calculateInterpolationParams_(duration_, 1, true);
         RCLCPP_INFO(nh->get_logger(), "Ready position control activated");
@@ -530,8 +778,14 @@ namespace sairol_bridge
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
-        if (!controlStarted_)
-            initControl_(bridge_interface::msg::RobotCmd());
+        std::string why;
+        if (!controlStarted_ && !armControl_(bridge_interface::msg::RobotCmd(), why))
+        {
+            RCLCPP_WARN(nh->get_logger(), "Zero position refused: %s", why.c_str());
+            response->success = false;
+            response->message = why;
+            return;
+        }
         zeroPositionControl_();
         calculateInterpolationParams_(duration_, 1, true);
         RCLCPP_INFO(nh->get_logger(), "Zero position control activated");
@@ -559,7 +813,14 @@ namespace sairol_bridge
             }
         }
 
-        initControl_(default_cmd);
+        std::string why;
+        if (!armControl_(default_cmd, why))
+        {
+            RCLCPP_WARN(nh->get_logger(), "Start control refused: %s", why.c_str());
+            response->success = false;
+            response->message = why;
+            return;
+        }
         RCLCPP_INFO(nh->get_logger(), "Starting control...");
         response->success = true;
         response->message = "start control with invalid size of default position, kp or kd";

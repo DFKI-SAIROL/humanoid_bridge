@@ -7,11 +7,13 @@
 # with the reason, not failed.
 #
 #   unit   pure Python: clients, adapters, goal order, observation, camera
-#   wire   the real G1_bridge against a fake robot, body path, 8 checks
+#   cpp    gtest test_estop: e-stop latch, stop frames, remote keys
+#   wire   the real G1_bridge against a fake robot, body path
+#   estop  the real G1_bridge's e-stop against a fake robot
 #   hands  the real G1_bridge against fake Dex3 hands, per-side release
 #
 # No stage touches hardware. Nothing here opens a real NIC: the DDS settings
-# below pin discovery to loopback.
+# below pin discovery to loopback, overriding any inherited CYCLONEDDS_URI.
 #
 # Safe to re-run.
 set -euo pipefail
@@ -21,7 +23,9 @@ REPO="$(cd "$HERE/.." && pwd)"
 INTEGRATION="$REPO/bridge/robot_bridge/tests/integration"
 
 RUN_UNIT=0
+RUN_CPP=0
 RUN_WIRE=0
+RUN_ESTOP=0
 RUN_HANDS=0
 RMW_CHOICE="auto"
 STALE_AFTER="${STALE_AFTER:-}"
@@ -31,11 +35,13 @@ usage() {
     cat <<'EOF'
 Usage: tools/test.sh [options]
 
-Run the no-hardware test stages. With no stage flag, runs all three.
+Run the no-hardware test stages. With no stage flag, runs all of them.
 
 Options:
   --unit                pure Python tests only; needs no ROS
+  --cpp                 gtest test_estop only; needs a built workspace
   --wire                body-path integration test only
+  --estop               e-stop integration test only
   --hands               hand-path integration test only
   --rmw <impl>          cyclonedds | fastrtps | auto (default auto)
   --python <path>       interpreter for the unit stage (default python3, or $PYTHON)
@@ -45,15 +51,18 @@ Options:
 
 Discovery: CycloneDDS disables multicast on loopback, so a multi-process run on
 one host finds nothing and the bridge looks like it never came up. When Cyclone
-is the RMW this script sets CYCLONEDDS_URI for lo with multicast="true" itself.
---rmw fastrtps is the other way out.
+is the RMW this script sets CYCLONEDDS_URI for lo with multicast="true" itself,
+replacing any inherited one (scripts/setup_unitree.sh points it at the robot).
+Fast DDS gets ROS_LOCALHOST_ONLY=1.
 EOF
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --unit)  RUN_UNIT=1 ;;
+        --cpp)   RUN_CPP=1 ;;
         --wire)  RUN_WIRE=1 ;;
+        --estop) RUN_ESTOP=1 ;;
         --hands) RUN_HANDS=1 ;;
         --rmw)   RMW_CHOICE="${2:?--rmw needs cyclonedds, fastrtps or auto}"; shift ;;
         --python) PYTHON="${2:?--python needs an interpreter path}"; shift ;;
@@ -64,8 +73,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_WIRE$RUN_HANDS" = "000" ]; then
-    RUN_UNIT=1; RUN_WIRE=1; RUN_HANDS=1
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_HANDS" = "00000" ]; then
+    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_HANDS=1
 fi
 
 if [ -n "$STALE_AFTER" ] \
@@ -81,14 +90,15 @@ case "$RMW_CHOICE" in
     cyclonedds)
         export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp CYCLONEDDS_URI="$LOOPBACK_URI" ;;
     fastrtps)
-        export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+        export RMW_IMPLEMENTATION=rmw_fastrtps_cpp ROS_LOCALHOST_ONLY=1
         unset CYCLONEDDS_URI ;;
     auto)
-        # Only inject the URI when Cyclone is actually the RMW. Fast DDS, the
-        # Humble default, discovers over loopback without help.
-        if [ "${RMW_IMPLEMENTATION:-}" = "rmw_cyclonedds_cpp" ] \
-           && [ -z "${CYCLONEDDS_URI:-}" ]; then
+        # Never keep an inherited URI: after setup_unitree.sh it names the
+        # robot's NIC, and the fake bridge would publish /lowcmd to the robot.
+        if [ "${RMW_IMPLEMENTATION:-}" = "rmw_cyclonedds_cpp" ]; then
             export CYCLONEDDS_URI="$LOOPBACK_URI"
+        else
+            export ROS_LOCALHOST_ONLY=1
         fi ;;
     *) echo "--rmw must be cyclonedds, fastrtps or auto; got '$RMW_CHOICE'" >&2; exit 2 ;;
 esac
@@ -148,11 +158,40 @@ stage_integration() {   # $1 name, $2 script, rest: script args
     fi
 }
 
+stage_cpp() {
+    local prefix bin
+    if ! prefix="$(ros2 pkg prefix robot_bridge 2>/dev/null)"; then
+        record cpp SKIP "robot_bridge not in the sourced workspace; tools/build.sh"
+        return
+    fi
+    bin="${prefix%/install/robot_bridge}/build/robot_bridge/test_estop"
+    if [ ! -x "$bin" ]; then
+        record cpp SKIP "no $bin; build with BUILD_TESTING on (colcon's default)"
+        return
+    fi
+    echo "=== cpp ==="
+    local out
+    if out="$("$bin" 2>&1)"; then
+        echo "$out" | tail -1
+        record cpp PASS "$(echo "$out" | tail -1)"
+    else
+        echo "$out" | grep -E "FAILED|Failure|Expected|Which is|actual" | head -25
+        record cpp FAIL "$(echo "$out" | tail -1)"
+        FAILED=1
+    fi
+}
+
 if [ "$RUN_UNIT" = 1 ]; then
     stage_unit
 fi
+if [ "$RUN_CPP" = 1 ]; then
+    if command -v ros2 >/dev/null; then stage_cpp; else record cpp SKIP "no ros2 on PATH"; fi
+fi
 if [ "$RUN_WIRE" = 1 ]; then
     stage_integration wire "$INTEGRATION/run_fake_wire_test.sh"
+fi
+if [ "$RUN_ESTOP" = 1 ]; then
+    stage_integration estop "$INTEGRATION/run_fake_estop_test.sh"
 fi
 if [ "$RUN_HANDS" = 1 ]; then
     # run_fake_hand_test.sh reads STALE_AFTER from the environment.

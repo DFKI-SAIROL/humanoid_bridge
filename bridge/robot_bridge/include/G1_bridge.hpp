@@ -14,7 +14,6 @@
 #include "unitree_hg/msg/hand_state.hpp"
 #include "bridge_interface/msg/hand_cmd.hpp"
 #include "common/motor_crc_hg.h"
-#include "unitree_go/msg/wireless_controller.hpp"
 
 
 namespace sairol_bridge {
@@ -76,8 +75,8 @@ public:
 
 private:
 
-    void wireless_callback(unitree_go::msg::WirelessController::SharedPtr data);
     void publishLowCommand_();
+    void publishStopCommand_() override;
     void publishLowCommandOLD_();
     void lowStateHandler_(unitree_hg::msg::LowState::SharedPtr message);
     bool initControl_(bridge_interface::msg::RobotCmd default_cmd) override;
@@ -109,9 +108,9 @@ private:
     }
 
     rclcpp::Subscription<unitree_hg::msg::LowState>::SharedPtr lowStateSubscriber_;
-    rclcpp::Subscription<unitree_go::msg::WirelessController>::SharedPtr remoteControlSubscriber_;
     rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowCommandPublisher_;
     int mode_machine_{0};
+    estop::Cause lastRemote_{estop::Cause::None};   // executor thread only
 
     HandChannel hands_[NUM_HANDS];
     rclcpp::TimerBase::SharedPtr handTimer_;

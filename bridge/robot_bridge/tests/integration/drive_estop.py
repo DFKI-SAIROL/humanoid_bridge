@@ -1,0 +1,283 @@
+"""Drives the e-stop of a running bridge against fake_g1.py and checks /lowcmd live.
+
+Exit 1 on failure. run_fake_estop_test.sh starts the fake and the bridge first.
+"""
+
+import argparse
+import bisect
+import sys
+import time
+
+import rclpy
+import yaml
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Float32, String, UInt16
+from unitree_hg.msg import LowCmd
+
+from robot_bridge.cmd_client import RobotCmdClient
+
+NUM_MOTORS = 29
+KEY_R1, KEY_L1, KEY_R2 = 1 << 0, 1 << 1, 1 << 4
+BRIDGE_HZ = 1000.0  # control_dt: 0.001
+RAMP_SECONDS = 2.5  # `duration` 2.0 plus margin
+GRACE = 0.05  # /lowcmd and /bridge_state are separate topics: order at a change is not kept
+
+
+def load_params(path):
+    with open(path) as handle:
+        params = yaml.safe_load(handle)["robot_bridge"]["ros__parameters"]
+    names = params["joint_names"]
+    return {
+        "kp": [float(params[n]["kp"]) for n in names],
+        "kd": [float(params[n]["kd"]) for n in names],
+        "damp_kd": float(params["estop"]["damp_kd"]),
+    }
+
+
+class Driver:
+    def __init__(self, node, params):
+        self.node = node
+        self.params = params
+        self.client = RobotCmdClient(node, num_dof=NUM_MOTORS, control_frequency=50.0)
+        self.keys = node.create_publisher(UInt16, "/fake_g1/keys", 10)
+        self.roll = node.create_publisher(Float32, "/fake_g1/roll", 10)
+        latched = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        node.create_subscription(String, "/bridge_state", self._on_state, latched)
+        node.create_subscription(LowCmd, "/lowcmd", self._on_cmd, 10)
+        self.state = None
+        self.last = None
+        self.count = 0
+        self.failures = []
+        self.changes = []  # (t, state)
+        self.frames = []  # (t, kp, q)
+
+    def _on_state(self, msg):
+        self.state = msg.data
+        self.changes.append((time.monotonic(), msg.data))
+
+    def _on_cmd(self, msg):
+        self.last = msg
+        self.count += 1
+        motors = list(msg.motor_cmd)[:NUM_MOTORS]
+        self.frames.append((time.monotonic(), [m.kp for m in motors], [m.q for m in motors]))
+
+    # --- helpers ---------------------------------------------------------
+
+    def spin(self, seconds):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            rclpy.spin_once(self.node, timeout_sec=0.005)
+
+    def wait_inputs(self, timeout=5.0):
+        # A press published before discovery matched is lost (Fast DDS).
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self.keys.get_subscription_count() and self.roll.get_subscription_count():
+                return True
+            rclpy.spin_once(self.node, timeout_sec=0.01)
+        return False
+
+    def wait_state(self, wanted, timeout=2.0):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self.state == wanted:
+                return True
+            rclpy.spin_once(self.node, timeout_sec=0.005)
+        return False
+
+    def check(self, name, ok, detail=""):
+        print(
+            "{:<44} {}{}".format(name, "PASS" if ok else "FAIL", "  " + detail if detail else ""),
+            flush=True,
+        )
+        if not ok:
+            self.failures.append(name)
+
+    def check_state(self, name, wanted):
+        self.check(name, self.wait_state(wanted), f"state '{self.state}'")
+
+    def motors(self):
+        return list(self.last.motor_cmd)[:NUM_MOTORS] if self.last else []
+
+    def frame(self, kp, kd, q=None):
+        motors = self.motors()
+        if not motors:
+            return False, "no /lowcmd"
+        ok = all(abs(m.kp - k) < 1e-3 for m, k in zip(motors, kp))
+        ok = ok and all(abs(m.kd - k) < 1e-3 for m, k in zip(motors, kd))
+        if q is not None:
+            ok = ok and all(abs(m.q - q) < 1e-2 for m in motors)
+        return ok, f"q[0]={motors[0].q:.4f} kp[0]={motors[0].kp:.1f} kd[0]={motors[0].kd:.1f}"
+
+    def rate(self, seconds=1.0):
+        start = self.count
+        self.spin(seconds)
+        return (self.count - start) / seconds
+
+    def press(self, keys, seconds=0.2):
+        self.keys.publish(UInt16(data=keys))
+        self.spin(seconds)
+
+    def send(self, q, hold_position, duration=0.1):
+        n = NUM_MOTORS
+        self.client.send_cmd(
+            q_target_pos=[q] * n,
+            target_kp=self.params["kp"],
+            target_kd=self.params["kd"],
+            duration=duration,
+            hold_position=hold_position,
+        )
+
+    def start(self, q):
+        return self.client.start_control(default_position=[q] * NUM_MOTORS, timeout_sec=30.0)
+
+    # --- the run ---------------------------------------------------------
+
+    def run(self):
+        kp, kd = self.params["kp"], self.params["kd"]
+        damp_kp, damp_kd = [0.0] * NUM_MOTORS, [self.params["damp_kd"]] * NUM_MOTORS
+
+        self.check("fake_g1 inputs matched", self.wait_inputs())
+        self.check_state("starts DISARMED", "DISARMED")
+
+        # Remote damp while disarmed: latches, publishes nothing.
+        self.press(KEY_L1 | KEY_R1)
+        self.press(0)
+        self.check_state("L1+R1 while disarmed latches silent", "LATCHED damp remote_damp silent")
+        count = self.count
+        self.spin(0.5)
+        self.check(
+            "silent latch publishes nothing", self.count == count, f"{self.count - count} frames"
+        )
+        self.check("start_control refused while latched", not self.start(0.123).success)
+        self.check("estop_reset", self.client.estop_reset().success)
+        self.check_state("reset from silent -> DISARMED", "DISARMED")
+
+        # Arm.
+        self.check("start_control", self.start(0.123).success)
+        self.spin(RAMP_SECONDS)
+        self.check_state("ARMED", "ARMED")
+        self.check("ramp reached 0.123", *self.frame(kp, kd, q=0.123))
+
+        # Operator damp.
+        self.client.estop_damp()
+        self.check_state("estop_damp latches", "LATCHED damp service_damp")
+        self.spin(0.2)
+        self.check("damp frame: kp 0, kd damp_kd", *self.frame(damp_kp, damp_kd, q=0.123))
+        hz = self.rate()
+        self.check("damp at ~1 kHz", 0.8 * BRIDGE_HZ < hz < 1.2 * BRIDGE_HZ, f"{hz:.0f} Hz")
+        self.send(0.3, hold_position=True)
+        self.spin(0.3)
+        self.check("/robot_cmd dropped while latched", *self.frame(damp_kp, damp_kd, q=0.123))
+        self.check("start_control refused while latched", not self.start(0.2).success)
+
+        # Operator hold over damp, by remote.
+        self.press(KEY_R1 | KEY_R2)
+        self.check_state("R1+R2 re-stiffens to hold", "LATCHED hold remote_hold")
+        self.check("hold frame: config gains, q kept", *self.frame(kp, kd, q=0.123))
+        self.check("estop_reset refused while combo held", not self.client.estop_reset().success)
+        self.press(0)
+        self.check("estop_reset", self.client.estop_reset().success)
+        self.check_state("reset -> STOPPED, still holding", "STOPPED hold remote_hold")
+        self.spin(0.2)
+        self.check("STOPPED keeps the hold frame", *self.frame(kp, kd, q=0.123))
+
+        # Re-arm, then /stop_control: hold, no latch.
+        self.check("start_control after reset", self.start(0.2).success)
+        self.spin(RAMP_SECONDS)
+        self.check("ramp reached 0.2", *self.frame(kp, kd, q=0.2))
+        self.client.stop_control()
+        self.check_state("stop_control holds without latch", "STOPPED hold stop")
+        self.check("start_control without reset", self.start(0.2).success)
+        self.spin(RAMP_SECONDS)
+        self.check_state("ARMED again", "ARMED")
+
+        # Command timeout: hold, latched.
+        self.send(0.25, hold_position=False, duration=0.1)
+        self.spin(0.8)
+        self.check_state("timeout latches hold", "LATCHED hold cmd_timeout")
+        self.check("timeout holds the last pose", *self.frame(kp, kd, q=0.25))
+
+        # IMU fault escalates hold to damp; reset refused while tilted.
+        self.roll.publish(Float32(data=1.5))
+        self.check_state("IMU fault escalates to damp", "LATCHED damp imu")
+        self.spin(0.2)
+        self.check("escalated frame is damp", *self.frame(damp_kp, damp_kd))
+        self.check("estop_reset refused while tilted", not self.client.estop_reset().success)
+
+        # Operator hold while the fault lasts: it wins and stays (faults fire at onset).
+        self.press(KEY_R1 | KEY_R2)
+        self.press(0)
+        self.check_state("R1+R2 during a lasting fault -> hold", "LATCHED hold remote_hold")
+        self.spin(0.5)
+        self.check(
+            "hold stays while the fault lasts",
+            self.state == "LATCHED hold remote_hold",
+            f"state '{self.state}'",
+        )
+        self.check("hold frame during the fault", *self.frame(kp, kd, q=0.25))
+        self.roll.publish(Float32(data=0.0))
+        self.spin(0.3)
+        self.check("estop_reset after level", self.client.estop_reset().success)
+        self.check_state("reset -> STOPPED hold", "STOPPED hold remote_hold")
+
+        # Both combos at once: damp wins.
+        self.press(KEY_L1 | KEY_R1 | KEY_R2)
+        self.press(0)
+        self.check_state("L1+R1+R2 -> damp", "LATCHED damp remote_damp")
+        self.spin(0.3)
+        self.check_recording()
+
+    def check_recording(self):
+        """Every frame, not only the last: a damp latch has kp 0, a hold never moves."""
+        times = [t for t, _ in self.changes]
+        damp_bad = hold_bad = silent_bad = checked = 0
+        hold_q = {}  # change index -> first q in that interval
+        for t, kp, q in self.frames:
+            i = bisect.bisect_right(times, t) - 1
+            if i < 0:
+                continue
+            near = [c for c in times[max(i - 1, 0) : i + 2] if abs(c - t) < GRACE]
+            if near:
+                continue
+            state = self.changes[i][1]
+            checked += 1
+            if state.endswith("silent"):
+                silent_bad += 1
+            elif state.startswith(("LATCHED damp", "STOPPED damp")):
+                damp_bad += any(abs(k) > 1e-6 for k in kp)
+            elif state.startswith(("LATCHED hold", "STOPPED hold")):
+                first = hold_q.setdefault(i, q)
+                hold_bad += any(abs(a - b) > 1e-3 for a, b in zip(q, first))
+        self.check("recording: frames checked", checked > 10000, f"{checked} of {len(self.frames)}")
+        self.check("recording: no frame while latched silent", silent_bad == 0, f"{silent_bad}")
+        self.check("recording: every damp frame has kp 0", damp_bad == 0, f"{damp_bad} bad")
+        self.check("recording: no hold frame moves", hold_bad == 0, f"{hold_bad} bad")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("params", help="the G1_config.yaml the bridge runs with")
+    args = parser.parse_args()
+
+    rclpy.init()
+    node = rclpy.create_node("estop_driver")
+    driver = Driver(node, load_params(args.params))
+    try:
+        driver.run()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+    if driver.failures:
+        print("\n{} check(s) failed: {}".format(len(driver.failures), ", ".join(driver.failures)))
+        sys.exit(1)
+    print("\nall checks passed")
+
+
+if __name__ == "__main__":
+    main()

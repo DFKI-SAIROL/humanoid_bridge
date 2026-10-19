@@ -1,7 +1,7 @@
-# remote control (only the key below is handled in the source):
-# stop control: L2 + UP + LEFT
-# start control, ready position and zero position are services only:
-#   /start_control, /ready_position_control, /zero_position_control
+# remote control, read from /lowstate.wireless_remote (docs/estop.md):
+# e-stop damp: L1 + R1    e-stop hold: R1 + R2    (set under estop:)
+# start, ready, zero position and e-stop reset are services only:
+#   /start_control, /ready_position_control, /zero_position_control, /estop_reset
 
 
 
@@ -14,6 +14,18 @@ robot_bridge:
     num_joint: 29
     torque_control: false
     imu_rpy_threshold: 1.0 #radians
+
+    # docs/estop.md. Operator e-stops have a fixed mode; these set the rest.
+    estop:
+      damp_kd: 8.0                      # float: an integer here fails the load
+      remote_combo_damp: ["L1", "R1"]
+      remote_combo_hold: ["R1", "R2"]
+      mode:                             # damp | hold
+        stop: hold
+        imu: damp
+        state_loss: damp
+        state_invalid: damp
+        cmd_timeout: hold
 
     # kp 0 makes publishLowCommand_'s torque-implied q bound a no-op for that
     # joint: the clamp is derived from kp, so a zero-gain joint is unbounded.

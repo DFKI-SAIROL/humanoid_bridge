@@ -58,7 +58,7 @@ def main():
 
     print("drive: calling start_control", flush=True)
     response = client.start_control(default_position=[RAMP_DEFAULT] * n, timeout_sec=30.0)
-    # success is hardcoded true in the bridge; the ramp in /lowcmd is the real check.
+    # success is false only while an e-stop is latched; the ramp in /lowcmd is the real check.
     print("drive: start_control ->", response, flush=True)
     time.sleep(2.5)  # the bridge ramps over its `duration` parameter, 2.0 s
 

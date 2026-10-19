@@ -118,6 +118,9 @@ class RobotCmdClient:
         self.cmd_publisher = node.create_publisher(RobotCmd, topic, 1)
         self.start_control_client = node.create_client(SetDefaultPosition, "/start_control")
         self.stop_control_client = node.create_client(Trigger, "/stop_control")
+        self.estop_damp_client = node.create_client(Trigger, "/estop_damp")
+        self.estop_hold_client = node.create_client(Trigger, "/estop_hold")
+        self.estop_reset_client = node.create_client(Trigger, "/estop_reset")
 
         # Hands are a separate path: their own topics, their own enable, their own
         # rate. Nothing here is sized by num_dof.
@@ -203,8 +206,20 @@ class RobotCmdClient:
         return self._call(self.start_control_client, request, timeout_sec)
 
     def stop_control(self, timeout_sec=5.0):
-        """Make the bridge ignore /robot_cmd. Blocks on the bridge."""
+        """Hold the pose and drop /robot_cmd until start_control. Blocks on the bridge."""
         return self._call(self.stop_control_client, Trigger.Request(), timeout_sec)
+
+    def estop_damp(self, timeout_sec=5.0):
+        """Latched e-stop, kp 0: arms sink slowly. Arming refused until estop_reset."""
+        return self._call(self.estop_damp_client, Trigger.Request(), timeout_sec)
+
+    def estop_hold(self, timeout_sec=5.0):
+        """Latched e-stop, hold the measured pose. Arming refused until estop_reset."""
+        return self._call(self.estop_hold_client, Trigger.Request(), timeout_sec)
+
+    def estop_reset(self, timeout_sec=5.0):
+        """Clear the latch; success is false while the cause is still present."""
+        return self._call(self.estop_reset_client, Trigger.Request(), timeout_sec)
 
     # --- Dex3 hands --------------------------------------------------------
 

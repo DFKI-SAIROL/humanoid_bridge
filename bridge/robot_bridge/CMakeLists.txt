@@ -36,6 +36,7 @@ include_directories(include include/common)
 
 add_executable(G1_bridge
   src/bridge_core.cpp
+  src/estop.cpp
   src/G1_bridge.cpp
   src/g1_node.cpp
   src/common/motor_crc_hg.cpp
@@ -64,6 +65,7 @@ install(
 
 add_executable(H1_bridge
   src/bridge_core.cpp
+  src/estop.cpp
   src/H1_bridge.cpp
   src/h1_node.cpp
   src/common/motor_crc.cpp
@@ -93,6 +95,7 @@ install(
 
 add_executable(H1_2_bridge
   src/bridge_core.cpp
+  src/estop.cpp
   src/H1_2_bridge.cpp
   src/h1_2_node.cpp
   src/common/motor_crc_hg.cpp
@@ -203,6 +206,7 @@ if(BUILD_BOOSTER_T1)
   add_executable(T1_bridge
     src/t1_node.cpp
     src/bridge_core.cpp
+    src/estop.cpp
     src/T1_bridge.cpp
   )
 
@@ -267,6 +271,11 @@ if(BUILD_TESTING)
   # uncomment the line when this package is not in a git repo
   #set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
+
+  # Pure e-stop logic, no ROS. Run alone: build/robot_bridge/test_estop
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_estop tests/test_estop.cpp src/estop.cpp)
+  target_include_directories(test_estop PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 endif()
 
 ament_package()

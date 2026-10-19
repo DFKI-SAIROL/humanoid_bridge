@@ -35,11 +35,19 @@ GEAR_CONFIG=<path>/g1_29dof_gear_wbc.yaml ./bridge/robot_bridge/tests/integratio
 received /lowcmd             PASS  4746 samples
 publishes at ~1 kHz          PASS  1000 Hz
 start_control honoured       PASS  q[0]=0.1230 wanted 0.123
+tracked GEAR's gains         PASS  2231 samples
 joint j lands on motor j     PASS  q[:3]=[0.01, 0.02, 0.03]
 kp from config               PASS
 kd from config               PASS
 bridge forced mode 1         PASS
 bridge forced PR mode        PASS
+timeout latches hold         PASS  kp[0]=100.0 q[0]=0.0100
+```
+
+E-stop, ends `all checks passed` (design: `docs/estop.md`):
+
+```bash
+tools/test.sh --estop
 ```
 
 ## 3. The G1 hand path
@@ -65,6 +73,8 @@ left the body idle.
 | `fake_g1.py` | publishes `/lowstate` at 500 Hz, records `/lowcmd`, tracks commands perfectly |
 | `drive_gear_wbc.py` | `start_control`, then 100 commands at 50 Hz through the adapter |
 | `check_lowcmd.py` | asserts the recording, exit 1 on failure |
+| `drive_estop.py` | drives every e-stop path and checks `/lowcmd` and `/bridge_state` live; `fake_g1.py` takes `/fake_g1/keys` and `/fake_g1/roll` |
+| `run_fake_estop_test.sh` | orchestrates the e-stop run |
 | `run_fake_wire_test.sh` | orchestrates the three, cleans up |
 | `fake_dex3.py` | publishes `/dex3/*/state` at 100 Hz, records `/dex3/*/cmd`; `--stale-after`, `--hot-after`, both timed from the first left command |
 | `drive_hand_cmd.py` | `start_hand_control`, then both hands through the hand adapter, then a bad command |
@@ -77,10 +87,15 @@ left the body idle.
   run. `pkill -9 -x G1_bridge`. The script starts the bridge with `setsid` and
   kills the process group, because `ros2 run` is a launcher and killing it
   alone orphans the child.
-- `start_control` always answers `success=True` with
-  `"start control with invalid size of default position, kp or kd"`. Both are
-  hardcoded in `startControlServiceCB_`, with no else branch. The ramp in
-  `/lowcmd` is the only real check, which is why the test asserts on it.
+- `start_control` answers `success=True` with
+  `"start control with invalid size of default position, kp or kd"` whenever
+  no e-stop is latched, whatever the length. The ramp in `/lowcmd` is the only
+  real check, which is why the test asserts on it.
+- A wire recording ends in hold frames: GEAR's stream stops, the command
+  timeout latches `hold` at the bridge's gains. `check_lowcmd.py` takes the last
+  frame with GEAR's kp as the last tracking frame.
+- Run with the robot cabled: `unshare -rn` gives a namespace with only `lo`
+  (`ip link set lo up multicast on; ip route add 224.0.0.0/4 dev lo` inside).
 - `bridge did not come up`: `/lowstate` was missing, or another node held
   `/lowcmd`. The bridge log is printed on failure.
 - The fake publishes 35 motor states, the bridge is configured for 29, so a

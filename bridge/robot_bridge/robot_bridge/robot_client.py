@@ -330,7 +330,7 @@ class RobotClient:
             print(
                 "Key mapping for Unitree G1 robot:"
                 "\n- Start control: L2 + START"
-                "\n- Stop control: L2 + UP + LEFT"
+                "\n- E-stop (bridge, latched): L1 + R1 damp, R1 + R2 hold; /estop_reset"
                 "\n- Ready position: L1"
                 "\n- Zero position: R1"
             )

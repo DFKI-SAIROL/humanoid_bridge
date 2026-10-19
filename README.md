@@ -133,7 +133,7 @@ listed as "service only", so use the service call instead.
 
 | | Start control | Stop control | Ready position | Zero position |
 |---|---|---|---|---|
-| G1 | service only | `L2 + Up + Left` | service only | service only |
+| G1 | service only | service only (holds) | service only | service only |
 | H1 | `L2 + Start` | `L2 + Up + Left` | `L1` | `R1` |
 | H1_2 | service only | `L2 + Up + Left` | service only | service only |
 | T1 | `LT + RT + Start` | `Back` | `LB` | `RB` |
@@ -141,12 +141,19 @@ listed as "service only", so use the service call instead.
 T1 also shuts the node down on `LT + Back`. `R2 + A` starts Unitree's own
 policy, not anything here.
 
+G1 e-stop, latched until `/estop_reset` (`docs/estop.md`): `L1 + R1` damp,
+`R1 + R2` hold. Do not use `L2 + Up`: it is the firmware's lock-stand combo.
+
 ```bash
 ros2 service call /start_control bridge_interface/srv/SetDefaultPosition \
     "{default_position: [...]}"                 # your own initial pose
 ros2 service call /stop_control std_srvs/srv/Trigger {}
 ros2 service call /ready_position_control std_srvs/srv/Trigger {}
 ros2 service call /zero_position_control std_srvs/srv/Trigger {}
+ros2 service call /estop_damp std_srvs/srv/Trigger {}        # G1: latched, kp 0
+ros2 service call /estop_hold std_srvs/srv/Trigger {}        # G1: latched, holds the pose
+ros2 service call /estop_reset std_srvs/srv/Trigger {}       # refused while the cause lasts
+ros2 topic echo /bridge_state                                # G1 only
 ```
 
 ### G1 Dex3 hands
@@ -180,14 +187,15 @@ tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.
 - **Clients import the *installed* client**, so rebuild after every Python change.
 - **Moving a package leaves colcon's cache pointing at the old path.**
   `tools/build.sh --clean <pkg>`.
-- **`start_control` always answers `success: true`.** A `default_position` that
+- **`start_control` answers `success: true` on a wrong length** (false only
+  while an e-stop is latched). A `default_position` that
   is not exactly 29 long is not rejected: the bridge moves all 29 joints to
   `ready_q_` instead, legs included. Check the length yourself.
 - **The first `/robot_cmd` cuts the arming ramp short.** `controlStarted_` is
   set before the 2 s ramp, so a client already streaming steps straight to its
   own target. Arm before the client streams.
 - **Control stops 200 ms after the last command's interpolation ends**, unless
-  `hold_position`. A chunked client must cover the gap with `duration`.
+  `hold_position`. On the G1 that latches `hold` until `/estop_reset`. A chunked client must cover the gap with `duration`.
 - **An abort does not release the joints.** On G1, H1 and H1_2 `finishControl_`
   only logs, so after an IMU trip or watchdog expiry the robot holds its last
   pose at full kp/kd. Only T1 drops to damping.

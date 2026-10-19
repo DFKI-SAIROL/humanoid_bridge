@@ -1,9 +1,9 @@
 # G1 e-stop
 
-Status: DESIGN, approved by the author 2026-10-19. No C++ written yet.
+Status: implemented on `g1-estop-safety`; unit and fake tests pass; gantry tests G0–G6 pending.
 Closes roadmap `feat/g1-finish-control-release`.
 
-## Today
+## Before this change
 
 | Path | Where | Sets `controlStarted_=false` | Calls `finishControl_` |
 |---|---|---|---|
@@ -33,6 +33,8 @@ Closes roadmap `feat/g1-finish-control-release`.
 - Arming moves the robot: `initControl_` ramps to the start pose over `duration` (2 s).
 - One entry point `enterStop_(cause)` for every trigger, any thread. It sets the state atomically, snapshots measured q under `mutex_`, then calls `finishControl_`.
 - Mode changes while stopped: an operator e-stop sets the mode it names (hold after damp re-stiffens at the current pose). A fault only turns `hold` into `damp`.
+- Faults and combos fire at onset only (author, 2026-10-19): an operator hold during a lasting fault stays. Combo hold → damp (L1 added) fires; damp → hold (L1 released first) does not.
+- A non-finite measured q never reaches `/lowcmd`: that joint gets damp at q 0.
 - Hands: in `LATCHED` the hand timer sends its existing limp frames. `STOPPED` leaves the hands alone.
 - New topic `/bridge_state` (`std_msgs/String`, transient-local, on change), e.g. `LATCHED damp remote_damp`.
 
@@ -112,16 +114,20 @@ estop:
 ## Code shape
 
 - `include/estop.hpp`, `src/estop.cpp`: no `rclcpp`. `SafetyLatch` (states, mode rules, reset rules), `buildStopFrame(...)`, `parseRemoteKeys(...)`.
-- `BridgeCore`: owns a `SafetyLatch`; `enterStop_`; `update_()` switches on state; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default, so H1, H1_2 and T1 keep today's output.
-- `G1Bridge`: implements `publishStopCommand_`; remote parsing moves into `lowStateHandler_`; `finishControl_` stays a log line.
+- `BridgeCore`: owns a `SafetyLatch` beside `controlStarted_` (tracking, now atomic); `enterStop_`; `armControl_` gates the arming services; `checkState_` returns the fault; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default.
+- `G1Bridge`: implements `publishStopCommand_`; remote parsing in `lowStateHandler_`, which now copies state under `mutex_`; `finishControl_` stays a log line.
+- `include/joint.hpp`: `Joint` moved out of `bridge_core.hpp` so the pure code needs no ROS.
+- `RobotCmdClient`: `estop_damp()`, `estop_hold()`, `estop_reset()`.
+- H1, H1_2, T1: same latch and services, no stop frame (silent as before). Their own remote and IMU stop paths skip the latch, so `/bridge_state` and the latch are valid on the G1 only (author, 2026-10-19).
 - Out of scope: the gate audit (task 2), H1/H1_2/T1 stop frames.
 
 ## Tests
 
 | Level | What |
 |---|---|
-| gtest `test_estop` (new, `ament_cmake_gtest`) | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing |
-| fake wire (`run_fake_wire_test.sh`, `lo`) | `/estop_damp` → `/lowcmd` `kp=0 kd=8` at 1 kHz; `/estop_hold` → config gains at fixed q; `/robot_cmd` ignored; `/start_control` false until `/estop_reset` |
+| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing |
+| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`. Not covered: `state_loss`, `state_invalid` |
+| `tools/test.sh --wire` | GEAR's stream ends in a `cmd_timeout` hold |
 | gantry | G0–G6 below |
 
 Gantry, robot hanging, operator on the remote:

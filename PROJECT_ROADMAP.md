@@ -3,7 +3,7 @@
 > One per repo. Planned work only, one item per task. Finished items are
 > deleted; git history is the log.
 
-_Last updated: 2026-09-10 · turing_
+_Last updated: 2026-10-19 · adminsairol-MS-7E06_
 
 ## Items
 
@@ -37,7 +37,7 @@ left needs hardware:
 - [ ] `fix/start-control-validate`: `startControlServiceCB_` answers `success: true` with an "invalid size" message unconditionally, then `initControl_` moves to `ready_q_` on a wrong length. **Done when:** a wrong length is rejected, the answer is false, and nothing moves.
 - [ ] `fix/g1-default-pos-29`: G1 `_default_pos` is 27 long while kp/kd are 29 (`robot_client.py`). **Done when:** all three are 29 and a length check fails loudly.
 - [ ] `fix/config-keymaps`: the stale keymap headers are corrected here (G1 and H1_2 advertised four keys the source comments out; T1 omitted `RT` from the start combo; H1 was right). Still to send upstream. **Done when:** the PR is open.
-- [ ] `feat/g1-finish-control-release`: `finishControl_` only logs, so an abort holds the last pose at full kp/kd. **Done when:** an abort releases as the lab defines it — see the open question in `PROJECT_STATUS.md`.
+- [ ] `feat/g1-finish-control-release`: e-stop latch built on `g1-estop-safety` (`docs/estop.md`), fake-tested only. **Done when:** gantry tests G0–G6 in `docs/estop.md` pass and the branch is merged.
 
 ### Cleanups
 
