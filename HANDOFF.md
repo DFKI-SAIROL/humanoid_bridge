@@ -61,7 +61,7 @@ changes are merged.
 
 ## Next action
 
-Task 2, design first (author's approval before C++): the gate table (gate, value,
+Task 2: design in `docs/psi0_gates.md`, awaiting the author's approval and its 4 decisions; then C++ (gate table: gate, value,
 psi0 need, change) in `docs/`, using the findings above. Must have before psi0
 commands: a `q_min/q_max` clamp on the body path and a rate limit on target q.
 
