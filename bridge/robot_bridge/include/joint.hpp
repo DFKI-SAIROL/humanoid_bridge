@@ -17,5 +17,6 @@ namespace sairol_bridge
         float_t kd{0};
         bool if_strong_joint{false}; // Whether the joint is a strong joint
         bool if_parallel_joint{false}; // Whether the joint is a parallel joint
+        float_t q_rate_limit{0}; // max target speed, rad/s; 0 = none (docs/psi0_gates.md)
     };
 } // namespace sairol_bridge

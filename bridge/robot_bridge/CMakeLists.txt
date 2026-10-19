@@ -37,6 +37,7 @@ include_directories(include include/common)
 add_executable(G1_bridge
   src/bridge_core.cpp
   src/estop.cpp
+  src/gates.cpp
   src/G1_bridge.cpp
   src/g1_node.cpp
   src/common/motor_crc_hg.cpp
@@ -276,6 +277,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_estop tests/test_estop.cpp src/estop.cpp)
   target_include_directories(test_estop PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  ament_add_gtest(test_gates tests/test_gates.cpp src/gates.cpp)
+  target_include_directories(test_gates PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 endif()
 
 ament_package()
