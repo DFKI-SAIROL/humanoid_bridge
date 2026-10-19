@@ -16,19 +16,31 @@
 
 Task 1 (e-stop): implemented per `docs/estop.md`, review findings fixed.
 `tools/test.sh` passes all five stages on CycloneDDS; wire and estop also on
-Fast DDS. Gantry tests G0–G6 not run: they need an operator on the remote.
+Fast DDS. Gantry tests 2026-10-19 (other session, author on the remote), all pass
+except G6-IMU (not run: needs a restart with `imu_rpy_threshold: 0.05`):
 
-Task 3 (web console): design interview in progress with the author.
-Settled: lab PC host; LAN + token in `~/.config/robot_console/token`, phone
-works; bridge stays in tmux; no browser deadman; one controlling tab;
-robot-generic package `bridge/robot_console` (upstream), built from
-`feat-motor-probe`; stdlib server; three.js by fetch script; panels: safety
-bar, arm/ready/stop, process launcher, motor jog, camera, 3D view. Processes
-come from a YAML that lives in humanoid-locoman-vla (`benches/g1/console.yaml`),
-children die with the console, Arm is refused while a `commands_robot`
-process runs. `lab ui` in humanoid-locoman-vla is removed (task in that repo's
-`chore-codebase-audit` HANDOFF.md). Open: the process-file schema (waits for
-the psi0 launch facts). After the design: merge `feat-motor-probe` here.
+| Test | Result |
+|---|---|
+| G0 bridge killed while armed | motors go `mode=0` (passive) about 0.4 s after the last `/lowcmd`; soft, not frozen |
+| G1 `/estop_damp` | `kp=0 kd=8` at 1 kHz; a lifted arm sinks back under gravity (peak 0.44 rad/s), shoulder yaw stays where pushed |
+| G2 `/estop_hold` | stiff, springs back |
+| G3 latch | `/robot_cmd` ignored (0.0000 rad), arm refused, reset to `STOPPED`, re-arm ok |
+| G4 remote | `L1+R1` damp, `R1+R2` hold, damp<->hold while latched; firmware did nothing else |
+| G5 `/stop_control` | `STOPPED hold stop`, re-arm without reset |
+| G6 timeout | `LATCHED hold cmd_timeout` 0.70 s after one command with `duration 0.5` |
+| Mid-motion | R shoulder pitch lifted 0.8 rad over 8 s (`interpolation_order 1`): `L1+R1` at -0.44 sinks back in ~2 s; `R1+R2` at -0.63 freezes, **snappy** |
+
+Findings to act on:
+- README "an abort holds the last pose at full kp/kd" is wrong: silence -> motors passive (G0). In the gantry safe; standing, a bridge crash drops the robot.
+- `pack_robot_cmd` / `RobotCmdClient` default `interpolation_order=0.0`: a step, `duration` ignored (`calculateInterpolationParams_`). A 0.3 rad target jumped in <1 s. Belongs in task 2 with the rate limit.
+- `robot_client.py` maps `L1` alone to ready and `R1` alone to zero position; operators press `L1` a moment before `R1` (key log). Never run the example clients with this bridge; README trap.
+- Proposal (author agreed to record, not decided): soften `hold` with a brake profile. Full gains, target `q0 + v0·(t − t²/2T)` for `t<T`, then `q0 + v0·T/2`; T = 0.2 s; clamp to `q_min/q_max` and a per-joint max stop distance (e.g. 0.3 rad); filter `dq`. Rejected: gain ramp (overshoot and return), damp-then-hold (gravity sag). psi0 shadow targets reach 2.2 rad/s, first target up to 1.7 rad from measured (humanoid-locoman-vla `benches/g1/findings.md`, Milestone 2).
+
+Task 3 (web console): implemented (`48a5010`, `docs/robot_console.md`).
+`bridge/robot_console` replaces motor_probe; 250 unit tests, `tools/test.sh --console`
+passes 4/4 against the real bridge + `fake_g1.py`; checked in headless Chrome at desktop
+and phone size. Lab file: humanoid-locoman-vla `benches/g1/console.yaml`, branch
+`feat-robot-console` (`6b2c91f`). Not yet run on the robot (roadmap "Robot console").
 
 Task 2 (gate audit for psi0): not started. Gates to tabulate (gate, value,
 psi0 need, change) in `docs/`:
@@ -40,24 +52,21 @@ psi0 need, change) in `docs/`:
 - IMU trip 1.0 rad roll/pitch: loose on a gantry.
 - `start_control` does not validate length (roadmap `fix/start-control-validate`).
 
-Robot: cabled on `enp4s0`, hanging in the gantry, debug mode. The OLD bridge
-(`~/bridge_ws`, commit `1a48b9e`) runs UNARMED in tmux `g1-bridge`. Nothing has
-ever been armed. The new build is in `~/bridge_ws_estop` (src symlink → this worktree).
+Robot: cabled on `enp4s0`, hanging in the gantry, debug mode. The NEW bridge
+(`~/bridge_ws_estop`, src symlink -> this worktree) runs in tmux `g1-bridge`, last
+state `LATCHED damp remote_damp`.
 
 Done when: G0–G6 pass on the gantry, the gate table is in `docs/`, and the
 changes are merged.
 
 ## Next action
 
-Finish the web-console design interview, write it to `docs/`, then implement.
-In parallel when an operator is free: gantry tests G0–G6 (`docs/estop.md`), operator on the remote:
+Task 2, design first (author's approval before C++): the gate table (gate, value,
+psi0 need, change) in `docs/`, using the findings above. Must have before psi0
+commands: a `q_min/q_max` clamp on the body path and a rate limit on target q.
 
-```bash
-kill -- -<pid>                       # old bridge, pid in the g1-bridge pane
-set +u; source scripts/setup_unitree.sh; source ~/bridge_ws_estop/install/setup.bash
-tools/g1-bringup.sh --no-release     # then --arm-from-measured --robot-is-clear
-ros2 topic echo /bridge_state        # second pane
-```
+Gantry, when an operator is free: G6-IMU (`imu_rpy_threshold: 0.05`, tilt -> damp),
+then the console checks (roadmap "Robot console").
 
 ## Blockers
 
@@ -71,3 +80,7 @@ None.
   sourced, or it reports the message type as invalid.
 - `tools/build.sh --workspace ~/bridge_ws_estop`: the clone is reached through a
   symlink, so workspace detection fails without it.
+- The robot's bridge runs from `~/bridge_ws_estop`: build `robot_bridge` changes in
+  another workspace, or tell the author before rebuilding there.
+- Start `robot_console` in a foreground tmux pane, not as a script's background job:
+  SIGINT is then ignored and processes stop only after the INT grace.
