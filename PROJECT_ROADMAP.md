@@ -32,6 +32,15 @@ left needs hardware:
   **Done when:** either the message exists and `g1_stack` uses it, or the
   duplication is documented as deliberate.
 
+### Robot console
+
+Built and fake-tested on `g1-web-interface` (`docs/robot_console.md`).
+
+- [ ] Gantry checks: phone over the lab LAN with the token, arm at the measured pose, jog one joint, web E-STOP DAMP and HOLD, an observe-only run started from the page.
+  **Done when:** each works on the G1 in the gantry, and the camera panel shows the Jetson preview.
+- [ ] Lab process file: `humanoid-locoman-vla/benches/g1/console.yaml` (branch `feat-robot-console` there) runs psi0, camera, GEAR and the nodes.
+  **Done when:** every entry starts and stops cleanly from the page on the lab PC.
+
 ### Upstream fixes — one branch each
 
 - [ ] `fix/start-control-validate`: `startControlServiceCB_` answers `success: true` with an "invalid size" message unconditionally, then `initControl_` moves to `ready_q_` on a wrong length. **Done when:** a wrong length is rejected, the answer is false, and nothing moves.

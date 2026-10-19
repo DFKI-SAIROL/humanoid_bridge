@@ -1,0 +1,17 @@
+# Minimal robot_console config: a G1 on this checkout's bridge config.
+# Copy it beside your own commands and edit. Schema: docs/robot_console.md.
+# Relative paths resolve against this file's directory.
+
+console:
+  robot: G1
+  bridge_config: ../../robot_bridge/params/G1_config.yaml
+  lowstate: {topic: /lowstate, type: unitree_hg/msg/LowState}
+  hands: true
+  # urdf: ~/.local/share/robot_console/g1_description/g1_29dof_with_hand.urdf   # scripts/fetch_assets.sh
+  # camera: http://192.168.123.164:5557/frame.jpg
+
+processes:
+  lowcmd_rate:
+    label: /lowcmd rate
+    group: bring-up
+    argv: [ros2, topic, hz, /lowcmd]

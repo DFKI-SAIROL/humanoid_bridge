@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robot_console</name>
+  <version>0.1.0</version>
+  <description>Web console for the robot bridge: e-stop, arming, processes, motor jog, camera.</description>
+  <maintainer email="lukasbmueller@gmail.com">Lukas Mueller</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>bridge_interface</depend>
+  <depend>robot_bridge</depend>
+  <exec_depend>rosidl_runtime_py</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

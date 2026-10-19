@@ -14,7 +14,7 @@ deploy layers stay independent of it.
 ## Architecture
 
 ```
-bridge/           upstream-bound: bridge_interface (msgs, srvs), robot_bridge (C++ + Python client)
+bridge/           upstream-bound: bridge_interface (msgs, srvs), robot_bridge (C++ + Python client), robot_console (web page)
 robot_stacks/     per-robot deploy layers; g1/ holds g1_stack and g1_camera
 scripts/          environment setup, sourced not run
 thirdparty/       vendored unitree_ros2, booster_ros2_interface
@@ -41,6 +41,9 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-09-10: build and test are scripts, not doc paragraphs: `tools/` holds executables, `scripts/` stays sourced-only. Build deps that rosdep cannot pull now live here rather than only in the consumer repo's Dockerfile — `docs/handover-audit.md`
 - 2026-09-10: `fake_dex3.py`'s `--stale-after`/`--hot-after` clocks start at the first `/dex3/left/cmd`, not process start, so the documented 3.0-4.0 window means what the prose always claimed — same doc
 - 2026-10-19: every body stop goes through one latch: operator e-stops `damp` (`kp=0, kd=8`) and `hold` (measured pose), both latched until `/estop_reset`; `/stop_control` holds without a latch; faults latch. Replaces `/lowcmd` silence after a stop — `docs/estop.md`
+- 2026-10-19: one web page operates the robot: `bridge/robot_console`, robot-generic and upstream-bound, built from `motor_probe` (`feat-motor-probe`). Lab specifics are one YAML in the lab repo; `humanoid-locoman-vla`'s `lab ui` is removed — `docs/robot_console.md`
+- 2026-10-19: console access is a token file plus an HttpOnly cookie, bound to the lab-LAN address, never `0.0.0.0`; the web e-stop is a convenience, the remote stays primary — same doc
+- 2026-10-19: the console's children die with it (`setpriv --pdeathsig`, spawned from one long-lived thread) and Arm is refused while a `commands_robot` process or a jog streams — same doc
 - 2026-10-19: G1 remote keys come from `/lowstate.wireless_remote`, not `/wirelesscontroller`, which sends nothing in debug mode; e-stop combos `L1+R1` damp, `R1+R2` hold — same doc
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 

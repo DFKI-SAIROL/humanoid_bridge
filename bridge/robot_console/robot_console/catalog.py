@@ -1,7 +1,8 @@
-"""The 43 commandable G1 motors as one flat table, read from G1_config.yaml.
+"""The commandable motors as one flat table, read from the bridge's own config.
 
-Two joint namings are in play: the config's (`L_ELBOW`) and the URDF's
-(`left_elbow_joint`, what `gear/goal.py` speaks). Every entry carries both.
+Body motors come from `joint_names`; the Dex3 hands from `*_hand_joint_names`
+when hands are on. Two namings: the config's (`L_ELBOW`) and the URDF's
+(`left_elbow_joint`). Every entry carries both.
 """
 
 from __future__ import annotations
@@ -15,10 +16,7 @@ BODY = "body"
 LEFT_HAND = "left_hand"
 RIGHT_HAND = "right_hand"
 
-# Group -> number of motors in that group's command vector.
-GROUP_SIZES = ((BODY, 29), (LEFT_HAND, 7), (RIGHT_HAND, 7))
-
-_CONFIG_RELPATH = Path("bridge") / "robot_bridge" / "params" / "G1_config.yaml"
+GROUPS = (BODY, LEFT_HAND, RIGHT_HAND)
 _LIMIT_FIELDS = ("q_min", "q_max", "dq_limit", "tau_limit", "kp", "kd")
 _SIDES = (("L_", "left_"), ("R_", "right_"))
 
@@ -62,10 +60,12 @@ class Catalog:
             raise ValueError("duplicate motor name in config")
         if len(self._by_urdf) != len(self.entries):
             raise ValueError("two motors map to one URDF joint name")
-        for group, size in GROUP_SIZES:
+        for group in GROUPS:
             found = sorted(entry.index for entry in self.entries if entry.group == group)
-            if found != list(range(size)):
-                raise ValueError(f"{group}: expected indices 0..{size - 1}, got {found}")
+            if found != list(range(len(found))):
+                raise ValueError(f"{group}: expected indices 0..{len(found) - 1}, got {found}")
+        if not self.group(BODY):
+            raise ValueError("no body motors")
 
     def by_name(self, name: str) -> MotorEntry:
         """Look up by config name. KeyError if there is no such motor."""
@@ -77,9 +77,13 @@ class Catalog:
 
     def group(self, group: str) -> tuple:
         """One group's motors, ordered by command index."""
-        if group not in dict(GROUP_SIZES):
+        if group not in GROUPS:
             raise KeyError(f"no such group: {group!r}")
         return tuple(sorted((e for e in self.entries if e.group == group), key=lambda e: e.index))
+
+    def groups(self) -> tuple:
+        """The groups that have motors, in GROUPS order."""
+        return tuple(g for g in GROUPS if any(e.group == g for e in self.entries))
 
     def to_json(self) -> list:
         """Every entry as a plain dict, JSON-safe."""
@@ -100,25 +104,16 @@ def _entry(params, name, group, expected_index=None):
     return MotorEntry(name=name, group=group, index=index, urdf_joint=urdf_name(name), **limits)
 
 
-def _names(params, key, count):
+def _names(params, key):
     names = params.get(key)
-    if not isinstance(names, list) or len(names) != count:
-        raise ValueError(f"{key}: expected a list of {count} names")
+    if not isinstance(names, list) or not names:
+        raise ValueError(f"{key}: expected a non-empty list of names")
     return names
 
 
-def default_config_path() -> Path:
-    """The shipped G1_config.yaml, found by walking up from this file."""
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / _CONFIG_RELPATH
-        if candidate.is_file():
-            return candidate
-    raise FileNotFoundError(f"no {_CONFIG_RELPATH} above {__file__}")
-
-
-def load_catalog(config_path=None) -> Catalog:
-    """Parse G1_config.yaml into a Catalog. Raises ValueError if the table is malformed."""
-    path = Path(config_path) if config_path is not None else default_config_path()
+def load_catalog(config_path, hands: bool = False) -> Catalog:
+    """Parse a bridge config into a Catalog. Raises ValueError if the table is malformed."""
+    path = Path(config_path)
     with open(path) as handle:
         document = yaml.safe_load(handle)
     try:
@@ -128,11 +123,12 @@ def load_catalog(config_path=None) -> Catalog:
 
     entries = [
         _entry(params, name, BODY, expected_index=i)
-        for i, name in enumerate(_names(params, "joint_names", 29))
+        for i, name in enumerate(_names(params, "joint_names"))
     ]
-    for key, group in (
-        ("left_hand_joint_names", LEFT_HAND),
-        ("right_hand_joint_names", RIGHT_HAND),
-    ):
-        entries += [_entry(params, name, group) for name in _names(params, key, 7)]
+    if hands:
+        for key, group in (
+            ("left_hand_joint_names", LEFT_HAND),
+            ("right_hand_joint_names", RIGHT_HAND),
+        ):
+            entries += [_entry(params, name, group) for name in _names(params, key)]
     return Catalog(entries)

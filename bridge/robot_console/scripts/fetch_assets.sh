@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
-# EXECUTE this one -- unlike setup_unitree.sh / setup_booster.sh, which are sourced.
-#   ./scripts/fetch_g1_description.sh [--force]
-#
-# Fetches the Unitree G1 description (URDF + meshes) into a gitignored assets
-# directory so motor_probe can serve the model to three.js/urdf-loader. The repo
-# keeps no binary assets, so this has to run once per checkout.
+# Fetches what the robot_console's 3D view needs, once per machine:
+#   three.js + urdf-loader -> $DATA/vendor          (pinned versions below)
+#   the Unitree G1 URDF + meshes -> $DATA/g1_description
+# Without them the page falls back to its list view.
+#   bridge/robot_console/scripts/fetch_assets.sh [--force]
 #
 # Env:
-#   G1_DESCRIPTION_DIR  destination (default robot_stacks/g1/g1_stack/assets)
+#   ROBOT_CONSOLE_DATA  destination root (default ~/.local/share/robot_console)
 #   G1_DESCRIPTION_REPO upstream remote
 #   G1_DESCRIPTION_REF  branch or tag to fetch
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-DEST="${G1_DESCRIPTION_DIR:-$REPO_ROOT/robot_stacks/g1/g1_stack/assets}"
+DATA="${ROBOT_CONSOLE_DATA:-$HOME/.local/share/robot_console}"
+VENDOR="$DATA/vendor"
+DEST="$DATA/g1_description"
+THREE=0.180.0
+URDF_LOADER=0.13.1
+CDN="https://cdn.jsdelivr.net/npm"
 UPSTREAM="${G1_DESCRIPTION_REPO:-https://github.com/unitreerobotics/unitree_ros.git}"
 UPSTREAM_REF="${G1_DESCRIPTION_REF:-master}"
 SUBTREE="robots/g1_description"
@@ -35,7 +36,7 @@ for arg in "$@"; do
     case "$arg" in
         --force) FORCE=1 ;;
         -h|--help)
-            sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -73,9 +74,38 @@ assets_present() {
     [ -n "$(find "$DEST" -type f \( -name '*.STL' -o -name '*.stl' -o -name '*.dae' -o -name '*.obj' \) -print -quit 2>/dev/null)" ]
 }
 
+# --- three.js + urdf-loader ------------------------------------------------
+# path under $VENDOR -> URL. three.module.js imports three.core.js; URDFLoader
+# imports STLLoader and ColladaLoader, which imports TGALoader.
+VENDOR_FILES=(
+    "three/three.module.js $CDN/three@$THREE/build/three.module.js"
+    "three/three.core.js $CDN/three@$THREE/build/three.core.js"
+    "three/examples/jsm/loaders/STLLoader.js $CDN/three@$THREE/examples/jsm/loaders/STLLoader.js"
+    "three/examples/jsm/loaders/ColladaLoader.js $CDN/three@$THREE/examples/jsm/loaders/ColladaLoader.js"
+    "three/examples/jsm/loaders/TGALoader.js $CDN/three@$THREE/examples/jsm/loaders/TGALoader.js"
+    "three/examples/jsm/controls/OrbitControls.js $CDN/three@$THREE/examples/jsm/controls/OrbitControls.js"
+    "urdf-loader/URDFLoader.js $CDN/urdf-loader@$URDF_LOADER/src/URDFLoader.js"
+    "urdf-loader/URDFClasses.js $CDN/urdf-loader@$URDF_LOADER/src/URDFClasses.js"
+)
+command -v curl >/dev/null 2>&1 || { echo "curl not found on PATH" >&2; exit 1; }
+for entry in "${VENDOR_FILES[@]}"; do
+    rel="${entry%% *}"
+    url="${entry#* }"
+    out="$VENDOR/$rel"
+    if [ "$FORCE" -eq 0 ] && [ -s "$out" ]; then
+        continue
+    fi
+    mkdir -p "$(dirname "$out")"
+    curl -fsSL -o "$out.part" "$url" || { echo "download failed: $url" >&2; rm -f "$out.part"; exit 1; }
+    [ -s "$out.part" ] || { echo "empty download: $url" >&2; exit 1; }
+    mv "$out.part" "$out"
+done
+echo "vendor:         $VENDOR (three $THREE, urdf-loader $URDF_LOADER)"
+
+# --- G1 description ----------------------------------------------------------
 if [ "$FORCE" -eq 0 ] && assets_present; then
     echo "g1_description already present -- skipping fetch (re-run with --force to refetch)"
-    echo "URDF: $(pick_urdf)"
+    echo "config line:    urdf: $(pick_urdf)"
     exit 0
 fi
 
@@ -151,5 +181,6 @@ echo "installed into: $DEST"
 echo "meshes:         $MESH_DIR ($MESH_COUNT files)"
 echo "URDF:           $URDF"
 echo
-echo "all URDFs available (point motor_probe at one of these):"
+echo "config line:    urdf: $URDF"
+echo "all URDFs available (console.urdf may name any of these):"
 find "$DEST" -type f -name '*.urdf' | sort | sed 's/^/  /'

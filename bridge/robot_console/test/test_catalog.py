@@ -1,15 +1,16 @@
-"""The motor table, against the shipped G1_config.yaml."""
+"""The motor table, against the shipped bridge configs."""
 
 from __future__ import annotations
 
 import dataclasses
 import json
+from pathlib import Path
 
 import pytest
+from robot_console.catalog import BODY, LEFT_HAND, RIGHT_HAND, MotorEntry, load_catalog
 
-from g1_stack.gear.goal import UPPER_BODY_JOINTS
-from g1_stack.motor_probe import catalog as catalog_mod
-from g1_stack.motor_probe.catalog import BODY, LEFT_HAND, RIGHT_HAND, MotorEntry, load_catalog
+PARAMS = Path(__file__).resolve().parents[2] / "robot_bridge" / "params"
+G1_CONFIG = PARAMS / "G1_config.yaml"
 
 LEG_URDF_JOINTS = (
     "left_hip_pitch_joint",
@@ -29,13 +30,18 @@ LEG_URDF_JOINTS = (
 
 @pytest.fixture(scope="module")
 def catalog():
-    return load_catalog()
+    return load_catalog(G1_CONFIG, hands=True)
 
 
-def test_the_default_config_path_is_the_shipped_yaml():
-    path = catalog_mod.default_config_path()
-    assert path.is_file()
-    assert path.name == "G1_config.yaml"
+def test_without_hands_only_the_body_loads():
+    body_only = load_catalog(G1_CONFIG)
+    assert len(body_only.entries) == 29
+    assert body_only.groups() == (BODY,)
+
+
+@pytest.mark.parametrize("robot,count", [("G1", 29), ("H1", 20), ("H1_2", 27), ("T1", 23)])
+def test_every_shipped_robot_config_loads(robot, count):
+    assert len(load_catalog(PARAMS / f"{robot}_config.yaml").group(BODY)) == count
 
 
 def test_forty_three_motors_in_group_order(catalog):
@@ -98,13 +104,6 @@ def test_the_two_hands_are_mirrored_not_shared(catalog):
     assert len(mirrored) == 6  # every hand joint but THUMB_0, which is symmetric
 
 
-def test_the_naming_rule_reproduces_every_upper_body_joint(catalog):
-    """The rule that derives the leg names is only trustworthy if it also
-    reproduces the names gear/goal.py already spells out."""
-    for urdf_joint in UPPER_BODY_JOINTS:
-        assert catalog.by_urdf(urdf_joint).urdf_joint == urdf_joint
-
-
 @pytest.mark.parametrize(
     "urdf_joint,name",
     [
@@ -124,7 +123,6 @@ def test_by_urdf_resolves_to_the_config_name(catalog, urdf_joint, name):
 def test_the_twelve_leg_joints_get_derived_urdf_names(catalog):
     derived = [entry.urdf_joint for entry in catalog.group(BODY)[:12]]
     assert derived == list(LEG_URDF_JOINTS)
-    assert not set(LEG_URDF_JOINTS) & set(UPPER_BODY_JOINTS)
 
 
 def test_unknown_lookups_raise(catalog):

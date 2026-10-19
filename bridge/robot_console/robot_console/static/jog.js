@@ -1,32 +1,31 @@
-// Per-motor jog panel for the G1. Vanilla ES modules, no build step, no runtime CDN.
+// Per-motor jog tab of the robot console. Vanilla ES module, no build step, no runtime CDN.
+// console.js owns the socket, the deadman ping and the safety bar; it feeds this
+// module through jogBoot / jogOnSnapshot / jogOnLink / jogShow.
 //
-// Vendored deps are pinned under ./vendor/ (three 0.180.0, urdf-loader 0.13.1).
-// Refetch commands live in vendor/README.md.
+// three.js and urdf-loader are fetched by scripts/fetch_assets.sh (three 0.180.0,
+// urdf-loader 0.13.1) and served under ./vendor/.
 //
 // Layering: the motor list and the control panel are built first and work alone.
 // The 3D view is loaded afterwards by dynamic import and is allowed to fail.
 
 // ------------------------------------------------------------------ constants
 
-// The only shipped description with all 29 body joints AND the Dex3 hands.
-const URDF_FILE = 'g1_29dof_with_hand.urdf';
-const ASSETS_BASE = '/assets/';
-const URDF_URL = ASSETS_BASE + URDF_FILE;
+// From the console config (console.urdf), served under /assets/. null: no 3D view.
+let URDF_URL = null;
+let URDF_FILE = '';
+let ctx = { client: () => null }; // set by jogBoot
 
 const API = {
   catalog: '/api/catalog',
-  start: '/api/control/start',
-  stop: '/api/control/stop',
-  select: '/api/select',
-  target: '/api/target',
-  mode: '/api/mode',
-  stream: '/api/stream',
+  start: '/api/jog/start',
+  stop: '/api/jog/stop',
+  select: '/api/jog/select',
+  target: '/api/jog/target',
+  mode: '/api/jog/mode',
 };
 
-const PING_MS = 250; // server stops commanding after 500 ms without a ping
-const TARGET_MIN_INTERVAL_MS = 50; // ~20 POST /api/target per second
+const TARGET_MIN_INTERVAL_MS = 50; // ~20 POST /api/jog/target per second
 const HTTP_TIMEOUT_MS = 4000;
-const WS_BACKOFF_MS = [250, 500, 1000, 2000, 4000, 8000];
 const STALE_AFTER_MS = 1000; // no frame for this long: readouts are history
 const SELECT_SETTLE_MS = 1000; // ignore stream `selected` this long after a local pick
 const CATALOG_RETRY_MS = 3000;
@@ -98,13 +97,14 @@ async function postJSON(path, body) {
   const init = {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}),
+    body: JSON.stringify({ ...(body || {}), client: ctx.client() }),
   };
   if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
     init.signal = AbortSignal.timeout(HTTP_TIMEOUT_MS);
   }
   const res = await fetch(path, init);
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${path}`);
+  // 409 is a refusal with a reason: hand it back as {ok: false, message}.
+  if (!res.ok && res.status !== 409) throw new Error(`HTTP ${res.status} from ${path}`);
   return res.json();
 }
 
@@ -121,21 +121,13 @@ async function control(which) {
   try {
     const reply = await postJSON(path);
     if (reply && reply.ok === false) {
-      setBanner('control', 'warn', `<b>${which.toUpperCase()} refused</b>${escapeHtml(reply.message || '')}`);
+      setBanner('control', 'warn', `<b>Jog ${which} refused</b>${escapeHtml(reply.message || '')}`);
     } else {
       clearBanner('control');
     }
   } catch (err) {
-    if (which === 'stop') {
-      // Last resort: drop the socket so the server's deadman trips within 500 ms.
-      dropSocket();
-      setBanner('control', 'bad',
-        '<b>STOP request failed &mdash; socket dropped instead</b>' +
-        'The deadman switch stops the robot within 500&nbsp;ms of the lost link. ' +
-        `Reason: ${escapeHtml(err.message)}`);
-    } else {
-      setBanner('control', 'bad', `<b>START failed</b>${escapeHtml(err.message)}`);
-    }
+    setBanner('control', 'bad', `<b>Jog ${which} failed</b>${escapeHtml(err.message)}` +
+      (which === 'stop' ? ' Use E-STOP or the remote.' : ''));
   }
 }
 
@@ -231,110 +223,23 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// ----------------------------------------------------- websocket + deadman
+// ------------------------------------------------- snapshots from console.js
 
-let ws = null;
-let pingTimer = null;
-let reconnectTimer = null;
-let backoffIndex = 0;
-
-function connect() {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = null;
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  setLink(false, 'connecting…', 'is-warn');
-  try {
-    ws = new WebSocket(`${proto}//${location.host}${API.stream}`);
-  } catch (err) {
-    console.error('[motor-probe] websocket construction failed', err);
-    scheduleReconnect();
-    return;
+export function jogOnLink(up) {
+  if (!up) {
+    state.started = false;
+    markStale(true);
   }
-  ws.onopen = () => {
-    backoffIndex = 0;
-    setLink(true, 'link live', 'is-ok');
-    clearBanner('link');
-    startPing();
-  };
-  ws.onmessage = onStreamMessage;
-  ws.onerror = () => { /* onclose always follows; report there */ };
-  ws.onclose = () => {
-    stopPing();
-    ws = null;
-    onLinkLost();
-    scheduleReconnect();
-  };
+  state.linkUp = up;
+  renderStartedPill();
 }
 
-function onLinkLost() {
-  state.started = false;
-  setLink(false, 'link down', 'is-bad');
-  setBanner('link', 'bad',
-    '<b>Stream is down &mdash; the robot is NOT being commanded</b>' +
-    'No ping reaches the server, so the deadman switch has stopped it. ' +
-    'Readouts below are the last values received. Reconnecting…');
-  markStale(true);
-}
-
-function scheduleReconnect() {
-  if (reconnectTimer !== null) return;
-  const base = WS_BACKOFF_MS[Math.min(backoffIndex, WS_BACKOFF_MS.length - 1)];
-  backoffIndex += 1;
-  const wait = base + Math.floor(Math.random() * 200);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connect();
-  }, wait);
-}
-
-// The deadman ping. It exists only while a socket is genuinely OPEN: no socket,
-// no timer, and every tick re-checks readyState before sending.
-function startPing() {
-  stopPing();
-  sendPing();
-  pingTimer = setInterval(sendPing, PING_MS);
-}
-
-function stopPing() {
-  if (pingTimer !== null) {
-    clearInterval(pingTimer);
-    pingTimer = null;
-  }
-}
-
-function sendPing() {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    stopPing();
-    return;
-  }
-  try {
-    ws.send('{"type":"ping"}');
-  } catch (err) {
-    console.error('[motor-probe] ping failed', err);
-    stopPing();
-    dropSocket();
-  }
-}
-
-function dropSocket() {
-  stopPing();
-  if (ws) {
-    try { ws.close(); } catch { /* already closing */ }
-  }
-}
-
-function onStreamMessage(event) {
-  let msg;
-  try {
-    msg = JSON.parse(event.data);
-  } catch {
-    return;
-  }
+export function jogOnSnapshot(msg) {
   if (!msg || typeof msg !== 'object' || !Array.isArray(msg.motors)) return;
 
   state.lastFrameAt = performance.now();
-  state.started = !!msg.started;
-  state.limp = !!msg.limp;
+  state.started = !!(msg.jog && msg.jog.active && msg.jog.alive);
+  state.limp = !!(msg.jog && msg.jog.limp);
 
   // Safety-critical, so never gated on requestAnimationFrame: a stalled
   // renderer must not leave a stale "COMMANDING ROBOT" on screen.
@@ -345,8 +250,7 @@ function onStreamMessage(event) {
   }
 
   // One selection model. Adopt the server's view, but not while our own select is
-  // in flight and not from frames still in transit when we made it — a stale
-  // `selected` would otherwise bounce the selection and reset the jog inputs.
+  // in flight and not from frames still in transit when we made it.
   if (typeof msg.selected === 'string' && msg.selected !== state.selected
       && !state.selectPending
       && performance.now() - state.lastSelectAt > SELECT_SETTLE_MS) {
@@ -357,14 +261,6 @@ function onStreamMessage(event) {
 }
 
 // -------------------------------------------------------------- top bar ui
-
-function setLink(up, text, cls) {
-  state.linkUp = up;
-  const pill = el('pill-conn');
-  pill.className = `pill ${cls}`;
-  setText(pill, text);
-  renderStartedPill();
-}
 
 function renderStartedPill() {
   const pill = el('pill-started');
@@ -667,12 +563,12 @@ let viewer = NO_VIEWER;
 let viewerTeardown = null; // drops the WebGL context if 3D is disabled later
 
 function disable3D(title, detail, err) {
-  if (err) console.error('[motor-probe] 3D disabled:', err);
+  if (err) console.error('[jog] 3D disabled:', err);
   viewer = NO_VIEWER;
   if (viewerTeardown) {
     const teardown = viewerTeardown;
     viewerTeardown = null;
-    try { teardown(); } catch (e) { console.error('[motor-probe] viewer teardown failed', e); }
+    try { teardown(); } catch (e) { console.error('[jog] viewer teardown failed', e); }
   }
   document.body.classList.add('no-3d');
   setText(el('viewport-msg'), '');
@@ -689,8 +585,8 @@ async function initViewer() {
     ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
     URDFLoader = (await import('urdf-loader')).default;
   } catch (err) {
-    disable3D('3D libraries did not load from <code>static/vendor/</code>.',
-      'Refetch them with the commands in <code>static/vendor/README.md</code>. ' +
+    disable3D('3D libraries did not load from <code>/vendor/</code>.',
+      'Fetch them with <code>bridge/robot_console/scripts/fetch_assets.sh</code>. ' +
       'The motor list is fully functional without them &mdash; selecting and jogging still work.',
       err);
     return;
@@ -784,12 +680,12 @@ async function initViewer() {
     if (!meshCount) {
       setBanner('meshes', 'warn',
         '<b>The description parsed but no meshes loaded</b>' +
-        'Run <code>scripts/fetch_g1_description.sh</code>. Selecting and jogging still work.');
+        'Run <code>bridge/robot_console/scripts/fetch_assets.sh</code>. Selecting and jogging still work.');
     } else if (meshErrors > 0) {
       setBanner('meshes', 'warn',
         `<b>${meshErrors} mesh${meshErrors === 1 ? '' : 'es'} failed to load</b>` +
         'The model is incomplete. Refetch the description with ' +
-        '<code>scripts/fetch_g1_description.sh</code>. Selecting and jogging still work.');
+        '<code>bridge/robot_console/scripts/fetch_assets.sh</code>. Selecting and jogging still work.');
     } else {
       clearBanner('meshes');
     }
@@ -809,7 +705,7 @@ async function initViewer() {
 
   loader.load(URDF_URL, onRobot, null, (err) => {
     disable3D(`Robot description not found at <code>${URDF_URL}</code>.`,
-      'Fetch it with <code>scripts/fetch_g1_description.sh</code>. ' +
+      'Fetch it with <code>bridge/robot_console/scripts/fetch_assets.sh</code>. ' +
       'The motor list is fully functional without it &mdash; selecting and jogging still work.',
       err);
   });
@@ -999,40 +895,11 @@ async function initViewer() {
   }
 }
 
-// ------------------------------------------------------------------- theme
-
-function applyTheme(theme) {
-  if (theme) document.documentElement.setAttribute('data-theme', theme);
-  else document.documentElement.removeAttribute('data-theme');
-  document.dispatchEvent(new CustomEvent('motorprobe:theme'));
-}
-
-function initTheme() {
-  let saved = null;
-  try { saved = localStorage.getItem('motorprobe.theme'); } catch { /* private mode */ }
-  if (saved === 'dark' || saved === 'light') applyTheme(saved);
-
-  el('btn-theme').addEventListener('click', () => {
-    const current = document.documentElement.getAttribute('data-theme')
-      || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    const next = current === 'dark' ? 'light' : 'dark';
-    applyTheme(next);
-    try { localStorage.setItem('motorprobe.theme', next); } catch { /* private mode */ }
-  });
-}
-
 // -------------------------------------------------------------------- wiring
 
 function wireControls() {
-  el('btn-start').addEventListener('click', () => control('start'));
-  el('btn-stop').addEventListener('click', () => control('stop'));
-
-  // Escape stops, wherever focus happens to be.
-  window.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    e.preventDefault();
-    control('stop');
-  });
+  el('btn-jog-start').addEventListener('click', () => control('start'));
+  el('btn-jog-stop').addEventListener('click', () => control('stop'));
 
   el('chk-limp').addEventListener('change', (e) => setLimp(e.target.checked));
 
@@ -1062,13 +929,6 @@ function wireControls() {
 
   el('list-filter').addEventListener('input', applyFilter);
   el('chk-diverging').addEventListener('change', applyFilter);
-
-  // Losing the tab must stop the robot: close the socket so the deadman trips now.
-  window.addEventListener('pagehide', dropSocket);
-  // Timers are throttled in background tabs, so ping the moment we are back.
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) sendPing();
-  });
 }
 
 // ---------------------------------------------------------------------- boot
@@ -1083,8 +943,27 @@ async function loadCatalog() {
   state.byUrdf = new Map(motors.map((m) => [m.urdf_joint, m]));
 }
 
-async function boot() {
-  initTheme();
+let viewerStarted = false;
+
+// Once, the first time the Jog tab is shown: a hidden host has no size, and a
+// phone that never opens the tab never downloads the model.
+export function jogShow() {
+  if (viewerStarted) return;
+  viewerStarted = true;
+  if (!URDF_URL) {
+    disable3D('No robot model configured.',
+      'Set <code>console.urdf</code> in the console config; ' +
+      '<code>bridge/robot_console/scripts/fetch_assets.sh</code> fetches the G1. ' +
+      'The motor list is fully functional without it.');
+    return;
+  }
+  initViewer(); // async, reports its own failures, never blocks the list
+}
+
+export async function jogBoot(context, urdfUrl) {
+  ctx = context;
+  URDF_URL = urdfUrl || null;
+  URDF_FILE = URDF_URL ? URDF_URL.split('/').pop() : '';
   wireControls();
 
   for (;;) {
@@ -1095,17 +974,12 @@ async function boot() {
     } catch (err) {
       setBanner('catalog', 'bad',
         `<b>Cannot read the motor catalog from <code>${API.catalog}</code></b>` +
-        `Is the probe server running? Retrying every ${CATALOG_RETRY_MS / 1000} s. ` +
-        `Reason: ${escapeHtml(err.message)}`);
+        `Retrying every ${CATALOG_RETRY_MS / 1000} s. Reason: ${escapeHtml(err.message)}`);
       await new Promise((resolve) => setTimeout(resolve, CATALOG_RETRY_MS));
     }
   }
 
   buildList();
   renderSelection();
-  connect();
   requestAnimationFrame(frame);
-  initViewer(); // async, reports its own failures, never blocks the list
 }
-
-boot();

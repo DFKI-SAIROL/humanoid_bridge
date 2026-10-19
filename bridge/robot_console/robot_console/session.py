@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from g1_stack.motor_probe.catalog import Catalog, MotorEntry
+    from robot_console.catalog import Catalog, MotorEntry
 
 BODY = "body"
 LEFT_HAND = "left_hand"

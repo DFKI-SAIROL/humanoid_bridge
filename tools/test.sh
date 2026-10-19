@@ -10,6 +10,7 @@
 #   cpp    gtest test_estop: e-stop latch, stop frames, remote keys
 #   wire   the real G1_bridge against a fake robot, body path
 #   estop  the real G1_bridge's e-stop against a fake robot
+#   console robot_console against the real G1_bridge and a fake robot
 #   hands  the real G1_bridge against fake Dex3 hands, per-side release
 #
 # No stage touches hardware. Nothing here opens a real NIC: the DDS settings
@@ -26,6 +27,7 @@ RUN_UNIT=0
 RUN_CPP=0
 RUN_WIRE=0
 RUN_ESTOP=0
+RUN_CONSOLE=0
 RUN_HANDS=0
 RMW_CHOICE="auto"
 STALE_AFTER="${STALE_AFTER:-}"
@@ -42,6 +44,7 @@ Options:
   --cpp                 gtest test_estop only; needs a built workspace
   --wire                body-path integration test only
   --estop               e-stop integration test only
+  --console             robot_console integration test only
   --hands               hand-path integration test only
   --rmw <impl>          cyclonedds | fastrtps | auto (default auto)
   --python <path>       interpreter for the unit stage (default python3, or $PYTHON)
@@ -63,6 +66,7 @@ while [ $# -gt 0 ]; do
         --cpp)   RUN_CPP=1 ;;
         --wire)  RUN_WIRE=1 ;;
         --estop) RUN_ESTOP=1 ;;
+        --console) RUN_CONSOLE=1 ;;
         --hands) RUN_HANDS=1 ;;
         --rmw)   RMW_CHOICE="${2:?--rmw needs cyclonedds, fastrtps or auto}"; shift ;;
         --python) PYTHON="${2:?--python needs an interpreter path}"; shift ;;
@@ -73,8 +77,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_HANDS" = "00000" ]; then
-    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_HANDS=1
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_CONSOLE$RUN_HANDS" = "000000" ]; then
+    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_CONSOLE=1; RUN_HANDS=1
 fi
 
 if [ -n "$STALE_AFTER" ] \
@@ -192,6 +196,9 @@ if [ "$RUN_WIRE" = 1 ]; then
 fi
 if [ "$RUN_ESTOP" = 1 ]; then
     stage_integration estop "$INTEGRATION/run_fake_estop_test.sh"
+fi
+if [ "$RUN_CONSOLE" = 1 ]; then
+    stage_integration console "$INTEGRATION/run_fake_console_test.sh"
 fi
 if [ "$RUN_HANDS" = 1 ]; then
     # run_fake_hand_test.sh reads STALE_AFTER from the environment.

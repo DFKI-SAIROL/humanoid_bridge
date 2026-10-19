@@ -6,8 +6,7 @@ import json
 from dataclasses import dataclass
 
 import pytest
-
-from g1_stack.motor_probe.session import BODY, LEFT_HAND, RIGHT_HAND, ProbeSession
+from robot_console.session import BODY, LEFT_HAND, RIGHT_HAND, ProbeSession
 
 NUM_BODY = 29
 NUM_HAND = 7
