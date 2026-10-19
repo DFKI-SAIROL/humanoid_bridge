@@ -8,7 +8,7 @@
 > nothing off, and merged, a leftover baton strays onto the default branch.
 
 - **Repo:** humanoid_bridge
-- **Branch:** `g1-estop-safety`
+- **Branch:** `g1-web-interface` (worktree dir keeps the old name until the session ends)
 - **Worktree:** /home/lukasm/git/worktrees/humanoid_bridge/g1-estop-safety
 - **Last updated:** 2026-10-19 · local (adminsairol-MS-7E06)
 
@@ -23,7 +23,7 @@ Settled: lab PC host; LAN + token (phone); bridge stays in tmux; no browser
 deadman; one controlling tab; web stack goes upstream, thesis content of
 `humanoid-locoman-vla`'s lab ui does not. Round 2 (Q9–Q15: package location,
 lab attach, `/robot` page, scope, three.js, token, stack) is open. After the
-design: merge `feat-motor-probe` here, rename this branch `g1-web-interface`.
+design: merge `feat-motor-probe` here.
 
 Task 2 (gate audit for psi0): not started. Gates to tabulate (gate, value,
 psi0 need, change) in `docs/`:
