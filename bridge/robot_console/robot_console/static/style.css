@@ -555,3 +555,15 @@ dialog h2 { margin-top: 0; font-size: 17px; }
 
 .jogbar .speed { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .jogbar .speed select { padding: 4px 6px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-2); }
+
+/* Jog slider: absolute target between the joint limits, with where the joint is. */
+.trackwrap { position: relative; --thumb: 16px; }
+.trackwrap input[type="range"] { width: 100%; }
+.marker { position: absolute; top: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+.marker[hidden] { display: none; }
+.marker.meas { width: 4px; height: 24px; border-radius: 2px; background: var(--ok); }
+.marker.cmd { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); background: transparent; }
+.legend { font-size: 11.5px; color: var(--muted); margin: 4px 0 0; }
+.legend .key { display: inline-block; vertical-align: middle; margin: 0 3px 0 8px; }
+.legend .key.meas { width: 4px; height: 12px; border-radius: 2px; background: var(--ok); }
+.legend .key.cmd { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--accent); }

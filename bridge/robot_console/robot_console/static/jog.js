@@ -258,6 +258,10 @@ export function jogOnSnapshot(msg) {
   state.yours = !!(msg.control && msg.control.yours);
   if (msg.jog && Number.isFinite(msg.jog.speed)) state.speed = msg.jog.speed;
   state.started = !!(msg.jog && msg.jog.active && msg.jog.alive);
+  const active = !!(msg.jog && msg.jog.active);
+  // A new jog starts from the measured pose: put the slider there, not at an old target.
+  if (active && !state.jogActive) state.reseed = true;
+  state.jogActive = active;
   state.limp = !!(msg.jog && msg.jog.limp);
 
   // Safety-critical, so never gated on requestAnimationFrame: a stalled
@@ -519,6 +523,18 @@ function applyClamped(name, q) {
   setInputs(q);
 }
 
+// Same mapping as the range thumb: its centre travels between half a thumb from each end.
+function placeMarker(node, q, motor) {
+  if (!node) return;
+  if (!Number.isFinite(q) || !(motor.q_max > motor.q_min)) {
+    node.hidden = true;
+    return;
+  }
+  node.hidden = false;
+  const frac = clamp((q - motor.q_min) / (motor.q_max - motor.q_min), 0, 1);
+  node.style.left = `calc(var(--thumb) / 2 + ${(frac * 100).toFixed(3)}% - ${frac.toFixed(4)} * var(--thumb))`;
+}
+
 function updatePanelReadouts() {
   const motor = panel.motor;
   if (!motor) return;
@@ -526,6 +542,21 @@ function updatePanelReadouts() {
   const qm = m ? Number(m.q_meas) : NaN;
   const qc = m ? Number(m.q_cmd) : NaN;
   const d = Number.isFinite(qm) && Number.isFinite(qc) ? Math.abs(qc - qm) : NaN;
+
+  placeMarker(el('mk-meas'), qm, motor);
+  placeMarker(el('mk-cmd'), qc, motor);
+
+  // The slider is the target only while this tab jogs; otherwise it shows the measured pose.
+  const live = state.yours && state.jogActive;
+  el('sel-slider').disabled = el('sel-num').disabled = !live;
+  if (!panel.held) {
+    if (!live && Number.isFinite(qm)) {
+      setInputs(clamp(qm, motor.q_min, motor.q_max));
+    } else if (state.reseed && Number.isFinite(qm)) {
+      setInputs(clamp(qm, motor.q_min, motor.q_max));
+    }
+    if (live) state.reseed = false;
+  }
 
   setText(el('sel-meas'), fmt(qm));
   setText(el('sel-cmd'), fmt(qc));
@@ -568,7 +599,6 @@ function frame() {
     const speed = el('sel-jog-speed');
     speed.disabled = !state.yours;
     if (!speed.matches(':focus') && state.speed != null) speed.value = String(state.speed);
-    if (panel.motor) el('sel-slider').disabled = el('sel-num').disabled = !state.yours;
     setClass(el('limpstrip'), 'is-on', state.limp);
     viewer.applyPose(state.meas);
     markStale(false);

@@ -136,7 +136,13 @@
             <div><label>dq</label><b id="sel-dq">&mdash;</b></div>
             <div><label>tau</label><b id="sel-tau">&mdash;</b></div>
           </div>
-          <input type="range" id="sel-slider" min="-1" max="1" step="0.001" value="0" aria-label="Target angle">
+          <div class="trackwrap">
+            <input type="range" id="sel-slider" min="-1" max="1" step="0.001" value="0" aria-label="Target angle">
+            <div class="marker meas" id="mk-meas" title="measured"></div>
+            <div class="marker cmd" id="mk-cmd" title="sent"></div>
+          </div>
+          <p class="legend"><span class="key meas"></span> measured <span class="key cmd"></span> sent
+            &middot; slider = target, ends = joint limits &middot; active while this tab jogs</p>
           <div class="jogrow">
             <span class="lim" id="sel-min">&mdash;</span>
             <input type="number" id="sel-num" step="0.001" aria-label="Target angle, radians">
