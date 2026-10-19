@@ -1,6 +1,6 @@
 # G1 e-stop
 
-Status: implemented on `g1-estop-safety`; unit and fake tests pass; gantry tests G0–G6 pending.
+Status: implemented on `g1-web-interface`; unit, fake and gantry tests pass (gantry 2026-10-19; G6-IMU not run).
 Closes roadmap `feat/g1-finish-control-release`.
 
 ## Before this change
@@ -18,7 +18,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 - `controlStarted_` is a plain `bool` shared by two threads; `currentState_` is written without `mutex_`.
 - `/start_control`, `/ready_position_control`, `/zero_position_control` re-arm at any time: nothing latches.
 - Measured 2026-10-19: `/wirelesscontroller` has 2 publishers but sent nothing in 10 s (no key held). `/lowstate.wireless_remote` arrives at 500 Hz: bytes 0–1 `0x55 0x51`, bytes 2–3 the key mask in `WirelessKey_H1_G1` bit order.
-- Unmeasured: what the motors do when `/lowcmd` goes silent (gantry test G0).
+- Measured (G0): when `/lowcmd` goes silent the motors go passive (`mode=0`) about 0.4 s later. A bridge crash drops a standing robot.
 
 ## States
 
@@ -139,3 +139,18 @@ Gantry, robot hanging, operator on the remote:
 - **G4** `L1+R1` damps, `R1+R2` holds, `R1+R2` during damp re-stiffens; firmware does nothing else.
 - **G5** `/stop_control`: holds, `/start_control` works without reset.
 - **G6** Faults: one `/robot_cmd` without `hold_position` → hold after timeout; `imu_rpy_threshold: 0.05`, tilt the gantry → damp.
+
+## Gantry results, 2026-10-19
+
+Author on the remote, robot hanging. G6-IMU not run (needs `imu_rpy_threshold: 0.05`).
+
+| Test | Result |
+|---|---|
+| G0 bridge killed while armed | motors go `mode=0` (passive) about 0.4 s after the last `/lowcmd`; soft, not frozen |
+| G1 `/estop_damp` | `kp=0 kd=8` at 1 kHz; a lifted arm sinks back (peak 0.44 rad/s), shoulder yaw stays where pushed |
+| G2 `/estop_hold` | stiff, springs back |
+| G3 latch | `/robot_cmd` ignored (0.0000 rad), arm refused, reset to `STOPPED`, re-arm ok |
+| G4 remote | `L1+R1` damp, `R1+R2` hold, damp<->hold while latched; firmware did nothing else |
+| G5 `/stop_control` | `STOPPED hold stop`, re-arm without reset |
+| G6 timeout | `LATCHED hold cmd_timeout` 0.70 s after one command with `duration 0.5` |
+| Mid-motion | shoulder pitch lifted 0.8 rad over 8 s: `L1+R1` sinks back in ~2 s; `R1+R2` freezes, **snappy** (brake profile: `docs/psi0_gates.md` gate 10) |
