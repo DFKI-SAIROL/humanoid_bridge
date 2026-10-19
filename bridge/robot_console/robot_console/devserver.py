@@ -10,6 +10,7 @@ processes. Proves nothing about the bridge, the wiring or the motors.
 from __future__ import annotations
 
 import argparse
+import os
 import threading
 import time
 from pathlib import Path
@@ -101,6 +102,7 @@ def main(argv=None):
     parser.add_argument("--vendor", default=str(server_mod.DEFAULT_VENDOR_ROOT))
     args = parser.parse_args(argv)
 
+    os.environ.setdefault("ROBOT_CONSOLE_CONFIG_DIR", str(Path(args.config).resolve().parent))
     config = load(args.config)
     catalog = load_catalog(config.console.bridge_config, hands=config.console.hands)
     bridge = FakeBridge()

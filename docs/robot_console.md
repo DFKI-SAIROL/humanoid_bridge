@@ -77,6 +77,7 @@ processes:
 ```
 
 - `${VAR}` and `~` expand in `cwd`, `argv`, `env` and `console` paths, from the merged environment, before params.
+- `${ROBOT_CONSOLE_CONFIG_DIR}` is the config file's directory, so a lab file can name its own repo.
 - A `choices` value may fill `{name}` anywhere in an element. A `text` value must be a whole element: never inside `bash -c`.
 - `argv` runs without a shell.
 - `ready` answering before Start: the entry shows `external`; it cannot be started or stopped here.

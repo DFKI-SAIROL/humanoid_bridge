@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import os
 import sys
 import threading
 from pathlib import Path
@@ -49,6 +50,8 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
     _check_host(args.host)
+    # Lets a config name paths beside itself, e.g. its own repo: ${ROBOT_CONSOLE_CONFIG_DIR}/../..
+    os.environ.setdefault("ROBOT_CONSOLE_CONFIG_DIR", str(Path(args.config).resolve().parent))
 
     try:
         config = load(args.config)
