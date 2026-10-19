@@ -14,32 +14,45 @@
 
 ## State
 
-Task 1 (e-stop): design in `docs/estop.md`, approved by the author 2026-10-19.
-No C++ written.
+Task 1 (e-stop): implemented per `docs/estop.md`, review findings fixed.
+`tools/test.sh` passes all five stages on CycloneDDS; wire and estop also on
+Fast DDS. Gantry tests G0–G6 not run: they need an operator on the remote.
+
+Task 3 (web console, new): design interview in progress with the author.
+Settled: lab PC host; LAN + token (phone); bridge stays in tmux; no browser
+deadman; one controlling tab; web stack goes upstream, thesis content of
+`humanoid-locoman-vla`'s lab ui does not. Round 2 (Q9–Q15: package location,
+lab attach, `/robot` page, scope, three.js, token, stack) is open. After the
+design: merge `feat-motor-probe` here, rename this branch `g1-web-interface`.
 
 Task 2 (gate audit for psi0): not started. Gates to tabulate (gate, value,
 psi0 need, change) in `docs/`:
-- No `q_min/q_max` clamp on the body path; only the hand path clamps (`G1_bridge.cpp:553`).
-- Implicit torque window `|q - q_meas| <= tau_limit/kp` (`G1_bridge.cpp:271`); divides by zero at `kp=0`.
+- No `q_min/q_max` clamp on the body path; only the hand path clamps (`G1_bridge.cpp`, `publishOneHand_`).
+- Implicit torque window `|q - q_meas| <= tau_limit/kp` in `publishLowCommand_`; divides by zero at `kp=0`.
 - kp/kd range `[0, 5000]` for both limb groups: no real gain guard.
 - `dq_limit` clamps only the feedforward `dq`, and trips `checkState_` on measured dq.
 - No rate limit on target q: the client's `duration` alone sets how fast a jump runs.
 - IMU trip 1.0 rad roll/pitch: loose on a gantry.
 - `start_control` does not validate length (roadmap `fix/start-control-validate`).
 
-psi0 path: 30 Hz action chunk every 400 ms, via GEAR (`adapters/gear_wbc`,
-50 Hz `/robot_cmd`) or a planned arms-only node (legs and waist held at the measured pose).
+Robot: cabled on `enp4s0`, hanging in the gantry, debug mode. The OLD bridge
+(`~/bridge_ws`, commit `1a48b9e`) runs UNARMED in tmux `g1-bridge`. Nothing has
+ever been armed. The new build is in `~/bridge_ws_estop` (src symlink → this worktree).
 
-Robot: cabled on `enp4s0`, hanging in the gantry, debug mode. `G1_bridge` from
-`1a48b9e` runs UNARMED in tmux `g1-bridge`. Nothing has ever been armed.
-
-Done when: both modes and the latch pass gantry tests G0–G6 (`docs/estop.md`),
-the gate table is in `docs/`, and the changes are merged with unit tests.
+Done when: G0–G6 pass on the gantry, the gate table is in `docs/`, and the
+changes are merged.
 
 ## Next action
 
-Write `estop.hpp/.cpp` and the gtest target first, then wire
-`BridgeCore`/`G1Bridge`, then the fake wire stage.
+Finish the web-console design interview, write it to `docs/`, then implement.
+In parallel when an operator is free: gantry tests G0–G6 (`docs/estop.md`), operator on the remote:
+
+```bash
+kill -- -<pid>                       # old bridge, pid in the g1-bridge pane
+set +u; source scripts/setup_unitree.sh; source ~/bridge_ws_estop/install/setup.bash
+tools/g1-bringup.sh --no-release     # then --arm-from-measured --robot-is-clear
+ros2 topic echo /bridge_state        # second pane
+```
 
 ## Blockers
 
@@ -47,13 +60,9 @@ None.
 
 ## Gotchas (unpromoted)
 
-- `/wirelesscontroller` sends nothing with no key held; read keys from
-  `/lowstate.wireless_remote` bytes 2–3. Read-only checks need `~/bridge_ws/install/setup.bash`
-  sourced, or `ros2 topic` reports the message type as invalid.
-- `tools/test.sh` says it pins CycloneDDS to `lo`: confirm for the Fast DDS stage
-  before running it with the robot on `enp4s0`.
-- Stop the running bridge (`kill -- -<pid>`, pid in the `g1-bridge` pane) before
-  rebuilding. `tools/build.sh --workspace ~/bridge_ws`: the clone is reached
-  through a symlink, so workspace detection fails without it.
-- The installed binary is built from `~/bridge_ws/src/humanoid_bridge` -> `~/github/humanoid_bridge`,
-  not this worktree: point the symlink here or build a separate workspace.
+- Run `tools/test.sh` with the robot cabled only inside a namespace with no NIC:
+  `unshare -rn bash -c 'ip link set lo up multicast on; ip route add 224.0.0.0/4 dev lo; …; tools/test.sh'`.
+- `ros2 topic` on the robot's topics needs `~/bridge_ws_estop/install/setup.bash`
+  sourced, or it reports the message type as invalid.
+- `tools/build.sh --workspace ~/bridge_ws_estop`: the clone is reached through a
+  symlink, so workspace detection fails without it.
