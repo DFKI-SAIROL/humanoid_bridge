@@ -18,12 +18,17 @@ Task 1 (e-stop): implemented per `docs/estop.md`, review findings fixed.
 `tools/test.sh` passes all five stages on CycloneDDS; wire and estop also on
 Fast DDS. Gantry tests G0–G6 not run: they need an operator on the remote.
 
-Task 3 (web console, new): design interview in progress with the author.
-Settled: lab PC host; LAN + token (phone); bridge stays in tmux; no browser
-deadman; one controlling tab; web stack goes upstream, thesis content of
-`humanoid-locoman-vla`'s lab ui does not. Round 2 (Q9–Q15: package location,
-lab attach, `/robot` page, scope, three.js, token, stack) is open. After the
-design: merge `feat-motor-probe` here.
+Task 3 (web console): design interview in progress with the author.
+Settled: lab PC host; LAN + token in `~/.config/robot_console/token`, phone
+works; bridge stays in tmux; no browser deadman; one controlling tab;
+robot-generic package `bridge/robot_console` (upstream), built from
+`feat-motor-probe`; stdlib server; three.js by fetch script; panels: safety
+bar, arm/ready/stop, process launcher, motor jog, camera, 3D view. Processes
+come from a YAML that lives in humanoid-locoman-vla (`benches/g1/console.yaml`),
+children die with the console, Arm is refused while a `commands_robot`
+process runs. `lab ui` in humanoid-locoman-vla is removed (task in that repo's
+`chore-codebase-audit` HANDOFF.md). Open: the process-file schema (waits for
+the psi0 launch facts). After the design: merge `feat-motor-probe` here.
 
 Task 2 (gate audit for psi0): not started. Gates to tabulate (gate, value,
 psi0 need, change) in `docs/`:
