@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G1 Motor Probe</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./style.css">
+
+<!-- Vendored, pinned, no CDN at runtime. See vendor/README.md. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/": "./vendor/three/",
+    "three/addons/": "./vendor/three/examples/jsm/",
+    "three/examples/jsm/": "./vendor/three/examples/jsm/",
+    "urdf-loader": "./vendor/urdf-loader/URDFLoader.js"
+  }
+}
+</script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">G1 Motor Probe<span>per-motor jog &mdash; wiring verification</span></div>
+
+  <div class="pills">
+    <span id="pill-conn" class="pill is-bad">connecting&hellip;</span>
+    <span id="pill-started" class="pill is-bad">not commanding</span>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="actions">
+    <button id="btn-start" class="btn btn-start" type="button">START</button>
+    <button id="btn-stop" class="btn btn-stop" type="button">STOP<small>or press Esc</small></button>
+    <button id="btn-theme" class="btn btn-icon" type="button" title="Toggle light / dark" aria-label="Toggle light / dark">&#9680;</button>
+  </div>
+</header>
+
+<div id="banners"></div>
+
+<div id="limpstrip" class="limpstrip">
+  <label for="chk-limp"><input type="checkbox" id="chk-limp"> Limp idle joints</label>
+  <span class="consequence">
+    Only the selected joint is driven. Every other joint loses its gains and goes slack &mdash;
+    a robot that is not on a stand or in a gantry <strong>will collapse</strong>.
+  </span>
+</div>
+
+<main class="layout">
+
+  <!-- 3D view. Optional: everything below works without it. -->
+  <section class="viewport-wrap" id="viewport-wrap">
+    <div id="viewport"></div>
+    <div id="hovertip" class="hovertip" hidden></div>
+    <div id="viewport-msg" class="viewport-msg">Loading 3D model&hellip;</div>
+  </section>
+
+  <aside class="side">
+
+    <!-- Control panel for the selected motor. -->
+    <section class="card" id="panel">
+      <h2>Selected motor</h2>
+
+      <div class="sel-head">
+        <span class="name" id="sel-name">none</span>
+        <span class="tag" id="sel-group" hidden></span>
+        <span class="urdf" id="sel-urdf"></span>
+      </div>
+
+      <p class="hint" id="sel-hint">Click a joint on the model, or pick a motor from the list below.</p>
+
+      <div id="sel-controls" hidden>
+        <div class="readouts">
+          <div><label>q_meas</label><b id="sel-meas">&mdash;</b></div>
+          <div><label>q_cmd</label><b id="sel-cmd">&mdash;</b></div>
+          <div id="sel-div-cell"><label>&Delta;</label><b id="sel-div">&mdash;</b></div>
+          <div><label>dq</label><b id="sel-dq">&mdash;</b></div>
+          <div><label>tau</label><b id="sel-tau">&mdash;</b></div>
+        </div>
+
+        <input type="range" id="sel-slider" min="-1" max="1" step="0.001" value="0" aria-label="Target angle">
+
+        <div class="jogrow">
+          <span class="lim" id="sel-min">&mdash;</span>
+          <input type="number" id="sel-num" step="0.001" aria-label="Target angle, radians">
+          <span class="lim" id="sel-max">&mdash;</span>
+        </div>
+
+        <p class="limits" id="sel-limits"></p>
+      </div>
+    </section>
+
+    <!-- All 43 motors. Fully functional on its own. -->
+    <section class="card listcard">
+      <h2>Motors <span id="list-count"></span></h2>
+
+      <div class="listtools">
+        <input type="search" id="list-filter" placeholder="filter by name or URDF joint" aria-label="Filter motors">
+        <label for="chk-diverging"><input type="checkbox" id="chk-diverging"> diverging only</label>
+      </div>
+
+      <div class="rows" id="rows"></div>
+    </section>
+
+  </aside>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

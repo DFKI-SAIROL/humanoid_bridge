@@ -46,3 +46,7 @@ __pycache__/
 *.log
 *.tmp
 *.~*
+
+# Robot description assets (fetched, not committed -- no binaries in this repo)
+# Populated by scripts/fetch_g1_description.sh
+robot_stacks/g1/g1_stack/assets/
