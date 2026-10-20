@@ -10,7 +10,6 @@ _ROOT = pathlib.Path(__file__).parent
 
 for _rel in (
     "bridge/robot_bridge",
-    "bridge/robot_console",
     "robot_stacks/g1/g1_stack",
     "robot_stacks/g1/g1_camera",
 ):

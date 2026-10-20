@@ -75,8 +75,6 @@ left the body idle.
 | `check_lowcmd.py` | asserts the recording, exit 1 on failure |
 | `drive_estop.py` | drives every e-stop path and checks `/lowcmd` and `/bridge_state` live; `fake_g1.py` takes `/fake_g1/keys` and `/fake_g1/roll` |
 | `run_fake_estop_test.sh` | orchestrates the e-stop run |
-| `drive_console.py` | a browser tab against the real `robot_console`: HTTP + WebSocket, `/lowcmd` watched over ROS |
-| `run_fake_console_test.sh` | console + bridge + `fake_g1.py` + two dummy processes; checks shutdown stops them |
 | `run_fake_wire_test.sh` | orchestrates the three, cleans up |
 | `fake_dex3.py` | publishes `/dex3/*/state` at 100 Hz, records `/dex3/*/cmd`; `--stale-after`, `--hot-after`, both timed from the first left command |
 | `drive_hand_cmd.py` | `start_hand_control`, then both hands through the hand adapter, then a bad command |

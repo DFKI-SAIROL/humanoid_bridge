@@ -150,15 +150,8 @@ policy, not anything here.
 G1 e-stop, latched until `/estop_reset` (`docs/estop.md`): `L1 + R1` damp,
 `R1 + R2` hold. Do not use `L2 + Up`: it is the firmware's lock-stand combo.
 
-Web console (e-stop, arm, processes, jog, camera; `docs/robot_console.md`):
-
-```bash
-bridge/robot_console/scripts/fetch_assets.sh                     # once: 3D view assets
-ros2 run robot_console robot_console --config <file> --host <lan-ip>
-tools/g1-console.sh            # G1 lab: version checks, then the line above with lab defaults
-```
-
-Open the printed `http://<lan-ip>:8080/?token=...` URL once per device.
+The bridge has no UI. The G1 web page (e-stop, arm, processes, jog, camera) is
+[`SiweiJu/g1_web_commander`](https://github.com/SiweiJu/g1_web_commander), built in the same workspace.
 
 ```bash
 ros2 service call /start_control bridge_interface/srv/SetDefaultPosition \

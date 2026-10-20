@@ -66,7 +66,7 @@ q_cmd    = q_prev + clamp(q_target - q_prev, -v_max·dt, +v_max·dt)         # g
 | `robot_client.py` remote `L1` alone (ready), `R1` alone (zero) | delete both and their help lines: they share keys with the e-stop combos and arm the bridge |
 | Latched after `state_loss` | send DAMP for 1 s more, then silent until `/estop_reset`: a robot that restarts must not get old frames |
 | `/robot_cmd` header | dropped when `interpolation_order` is outside [0, 1] or `duration` is NaN or negative; an order outside [0, 1] used to end the bridge process (review, 2026-10-20) |
-| Config vs URDF | `tools/g1-console.sh` checks `G1_config.yaml` body limits against the model URDF (ranges) and `g1_29dof_with_hand.urdf` (all four, if present); listed exceptions only |
+| Config vs URDF | `g1_web_commander`'s `tools/g1-commander.sh` runs `tools/check-g1-limits.py`: it checks `G1_config.yaml` body limits against the model URDF (ranges) and `g1_29dof_with_hand.urdf` (all four, if present); listed exceptions only |
 
 ## Tests
 

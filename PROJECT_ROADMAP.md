@@ -34,14 +34,6 @@ left needs hardware:
   **Done when:** either the message exists and `g1_stack` uses it, or the
   duplication is documented as deliberate.
 
-### Robot console
-
-Built and fake-tested on `g1-web-interface` (`docs/robot_console.md`).
-
-- [ ] Gantry checks: phone over the lab LAN with the token, arm at the measured pose, jog one joint, web E-STOP DAMP and HOLD, an observe-only run started from the page.
-  **Done when:** each works on the G1 in the gantry, and the camera panel shows the Jetson preview.
-- The lab's process file and its checks live in humanoid-locoman-vla (`benches/g1/console.yaml`, branch `feat-robot-console`, its roadmap "Run the G1 from the robot console").
-
 ### psi0 gates
 
 Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).

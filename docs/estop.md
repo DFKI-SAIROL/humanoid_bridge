@@ -78,6 +78,12 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 - `/estop_reset` is refused while its cause is still present: state stale, IMU over threshold, NaN, or a combo still held.
 - No remote reset: a reset combo can be hit while pressing buttons in a panic.
 
+## Without a UI
+
+- The remote is the primary e-stop: `L1+R1` damp, `R1+R2` hold.
+- Services: the `ros2 service call` block in `README.md` § 4 (`/estop_damp`, `/estop_hold`, `/estop_reset`, `/stop_control`).
+- The web page lives in `g1_web_commander`; the bridge needs none.
+
 ## Remote combos
 
 Read keys from `/lowstate.wireless_remote` bytes 2–3 (little-endian `uint16`). Drop the `/wirelesscontroller` subscription and `L2+Up+Left`. Trigger on the first sample with a combo held; no debounce.
