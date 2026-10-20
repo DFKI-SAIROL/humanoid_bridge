@@ -3,7 +3,7 @@
 > One per repo. Planned work only, one item per task. Finished items are
 > deleted; git history is the log.
 
-_Last updated: 2026-10-20 · adminsairol-MS-7E06_
+_Last updated: 2026-10-20 · lukas-mbp_
 
 ## Items
 
@@ -50,6 +50,11 @@ Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
   **Done when:** the default is set from the measured max plus margin.
 - [ ] IMU trip: measure the standing tilt under GEAR and psi0 in the rehearsal, then lower `imu_rpy_threshold` from 1.0 to about 0.5.
   **Done when:** the new value is in `G1_config.yaml` and G6-IMU passes on the gantry with it.
+
+### Link loss
+
+- [ ] Jetson link watcher: a process on the Jetson freezes the robot (`hold`, `docs/estop.md`) when the link to the bridge on the lab PC drops, Ethernet or WiFi. It must act within 0.4 s: the motors go passive 0.4 s after `/lowcmd` stops (G0), so a link drop today drops a standing robot.
+  **Done when:** on the gantry, armed, a pulled Ethernet cable and a dropped WiFi link each leave the robot holding its pose until a reset, and the watcher sends nothing while the bridge runs or after a normal disarm.
 
 ### Upstream fixes — one branch each
 
