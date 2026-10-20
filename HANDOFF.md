@@ -14,7 +14,7 @@
 
 ## State
 
-- **UI split:** the web console left this repo (`f58eedf`). It is `SiweiJu/g1_web_commander` now: PR SiweiJu/g1_web_commander#1 (branch `chore-init`). This branch has a draft PR to `main`; it waits for the acceptance test.
+- **UI split:** the web console left this repo (`f58eedf`). It is `SiweiJu/g1_web_commander` now: PR SiweiJu/g1_web_commander#1 (branch `chore-init`). This branch: draft PR #7 to `main`; it waits for the acceptance test.
 - **psi0 gates, remote rule, silent latch, review fixes, exit hang:** built, unit and fake tests pass (`docs/psi0_gates.md`, `docs/estop.md`). Built in `~/bridge_ws_gates` only.
 - **Robot:** in the gantry. The bridge on the robot still runs the old binary from `~/bridge_ws_estop`, or nothing.
 
