@@ -119,7 +119,9 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     }
     // Update the last state time using the same clock source
     last_state_time_ = nh->get_clock()->now();
-    for (size_t i = 0; i < msg->motor_state.size(); ++i)
+    // unitree_hg LowState has 35 motor slots; currentState_ holds numJoint_ (29) of them.
+    const size_t n = std::min(msg->motor_state.size(), currentState_.motor_state.size());
+    for (size_t i = 0; i < n; ++i)
     {
         currentState_.motor_state[i].q = msg->motor_state[i].q;
         currentState_.motor_state[i].dq = msg->motor_state[i].dq;
