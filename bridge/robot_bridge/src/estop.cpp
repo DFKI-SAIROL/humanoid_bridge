@@ -112,6 +112,16 @@ namespace sairol_bridge::estop
         return static_cast<uint16_t>(raw[2] | (raw[3] << 8));
     }
 
+    bool remoteHeader(const uint8_t *raw, size_t size)
+    {
+        return raw != nullptr && size >= 2 && raw[0] == 0x55 && raw[1] == 0x51;
+    }
+
+    bool silenceDue(bool latched, bool publishing, double state_age_s)
+    {
+        return latched && publishing && state_age_s > STATE_LOSS_S + SILENCE_AFTER_S;
+    }
+
     bool held(uint16_t keys, uint16_t combo)
     {
         return combo != 0 && (keys & combo) == combo;
@@ -265,6 +275,17 @@ namespace sairol_bridge::estop
         state_ = State::Idle;
         publishing_ = false;
         cause_ = Cause::None;
+        return true;
+    }
+
+    bool SafetyLatch::silence()
+    {
+        if (state_ != State::Latched || !publishing_)
+        {
+            return false;
+        }
+        publishing_ = false;
+        ++generation_;
         return true;
     }
 

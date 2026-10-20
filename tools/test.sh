@@ -7,9 +7,10 @@
 # with the reason, not failed.
 #
 #   unit   pure Python: clients, adapters, goal order, observation, camera
-#   cpp    gtest test_estop: e-stop latch, stop frames, remote keys
+#   cpp    gtests test_estop, test_gates: e-stop latch, stop frames, remote keys, target gates
 #   wire   the real G1_bridge against a fake robot, body path
 #   estop  the real G1_bridge's e-stop against a fake robot
+#   gates  a fresh G1_bridge's target gates (range, speed, arming seed) against a fake robot
 #   console robot_console against the real G1_bridge and a fake robot
 #   hands  the real G1_bridge against fake Dex3 hands, per-side release
 #
@@ -27,6 +28,7 @@ RUN_UNIT=0
 RUN_CPP=0
 RUN_WIRE=0
 RUN_ESTOP=0
+RUN_GATES=0
 RUN_CONSOLE=0
 RUN_HANDS=0
 RMW_CHOICE="auto"
@@ -41,9 +43,10 @@ Run the no-hardware test stages. With no stage flag, runs all of them.
 
 Options:
   --unit                pure Python tests only; needs no ROS
-  --cpp                 gtest test_estop only; needs a built workspace
+  --cpp                 gtests test_estop and test_gates only; needs a built workspace
   --wire                body-path integration test only
   --estop               e-stop integration test only
+  --gates               target-gate integration test only
   --console             robot_console integration test only
   --hands               hand-path integration test only
   --rmw <impl>          cyclonedds | fastrtps | auto (default auto)
@@ -66,6 +69,7 @@ while [ $# -gt 0 ]; do
         --cpp)   RUN_CPP=1 ;;
         --wire)  RUN_WIRE=1 ;;
         --estop) RUN_ESTOP=1 ;;
+        --gates) RUN_GATES=1 ;;
         --console) RUN_CONSOLE=1 ;;
         --hands) RUN_HANDS=1 ;;
         --rmw)   RMW_CHOICE="${2:?--rmw needs cyclonedds, fastrtps or auto}"; shift ;;
@@ -77,8 +81,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_CONSOLE$RUN_HANDS" = "000000" ]; then
-    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_CONSOLE=1; RUN_HANDS=1
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_CONSOLE$RUN_HANDS" = "0000000" ]; then
+    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_GATES=1; RUN_CONSOLE=1; RUN_HANDS=1
 fi
 
 if [ -n "$STALE_AFTER" ] \
@@ -163,26 +167,27 @@ stage_integration() {   # $1 name, $2 script, rest: script args
 }
 
 stage_cpp() {
-    local prefix bin
+    local prefix bin name out
     if ! prefix="$(ros2 pkg prefix robot_bridge 2>/dev/null)"; then
         record cpp SKIP "robot_bridge not in the sourced workspace; tools/build.sh"
         return
     fi
-    bin="${prefix%/install/robot_bridge}/build/robot_bridge/test_estop"
-    if [ ! -x "$bin" ]; then
-        record cpp SKIP "no $bin; build with BUILD_TESTING on (colcon's default)"
-        return
-    fi
-    echo "=== cpp ==="
-    local out
-    if out="$("$bin" 2>&1)"; then
-        echo "$out" | tail -1
-        record cpp PASS "$(echo "$out" | tail -1)"
-    else
-        echo "$out" | grep -E "FAILED|Failure|Expected|Which is|actual" | head -25
-        record cpp FAIL "$(echo "$out" | tail -1)"
-        FAILED=1
-    fi
+    for name in test_estop test_gates; do
+        bin="${prefix%/install/robot_bridge}/build/robot_bridge/$name"
+        if [ ! -x "$bin" ]; then
+            record cpp SKIP "no $bin; build with BUILD_TESTING on (colcon's default)"
+            continue
+        fi
+        echo "=== cpp $name ==="
+        if out="$("$bin" 2>&1)"; then
+            echo "$out" | tail -1
+            record cpp PASS "$name: $(echo "$out" | tail -1)"
+        else
+            echo "$out" | grep -E "FAILED|Failure|Expected|Which is|actual" | head -25
+            record cpp FAIL "$name: $(echo "$out" | tail -1)"
+            FAILED=1
+        fi
+    done
 }
 
 if [ "$RUN_UNIT" = 1 ]; then
@@ -196,6 +201,9 @@ if [ "$RUN_WIRE" = 1 ]; then
 fi
 if [ "$RUN_ESTOP" = 1 ]; then
     stage_integration estop "$INTEGRATION/run_fake_estop_test.sh"
+fi
+if [ "$RUN_GATES" = 1 ]; then
+    stage_integration gates "$INTEGRATION/run_fake_gates_test.sh"
 fi
 if [ "$RUN_CONSOLE" = 1 ]; then
     stage_integration console "$INTEGRATION/run_fake_console_test.sh"

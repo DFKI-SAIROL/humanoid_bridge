@@ -1,6 +1,11 @@
 #include "rclcpp/rclcpp.hpp"
 #include "G1_bridge.hpp"
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <thread>
+
 
 int main(int argc, char **argv)
 {
@@ -20,12 +25,19 @@ int main(int argc, char **argv)
     bridge = g1_bridge;
 
     if (bridge)
-    {   
+    {
         bridge->start();
         rclcpp::spin(nh);
     }
 
     bridge->stop();
+    // With the NIC down, Cyclone's dds_delete waits forever for its receive thread and the
+    // process never exits after "G1 Bridge stopped.": end it if teardown takes over 3 s.
+    std::thread([] {
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        std::fflush(nullptr);
+        std::_Exit(0);
+    }).detach();
     return 0;
 }
 

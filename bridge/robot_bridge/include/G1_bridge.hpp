@@ -82,6 +82,8 @@ private:
     bool initControl_(bridge_interface::msg::RobotCmd default_cmd) override;
     void finishControl_() override;
     bool checkExternalPublisher_(std::string topic_name);
+    // Refused while anything besides this bridge publishes /lowcmd (a restarted robot's motion service).
+    bool robotAllowsArming_(std::string &why) override;
 
     // --- Dex3 hands --------------------------------------------------------
     // All of these run on the executor thread (subscriptions and the wall timer

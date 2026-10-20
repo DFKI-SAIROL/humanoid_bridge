@@ -89,10 +89,8 @@ left the body idle.
   run. `pkill -9 -x G1_bridge`. The script starts the bridge with `setsid` and
   kills the process group, because `ros2 run` is a launcher and killing it
   alone orphans the child.
-- `start_control` answers `success=True` with
-  `"start control with invalid size of default position, kp or kd"` whenever
-  no e-stop is latched, whatever the length. The ramp in `/lowcmd` is the only
-  real check, which is why the test asserts on it.
+- `start_control` refused in a fake run: `fake_g1.py` lost its remote header
+  (`/fake_g1/remote`), or another `/lowcmd` publisher is up.
 - A wire recording ends in hold frames: GEAR's stream stops, the command
   timeout latches `hold` at the bridge's gains. `check_lowcmd.py` takes the last
   frame with GEAR's kp as the last tracking frame.

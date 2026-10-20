@@ -7,6 +7,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$HERE/loopback_dds.sh"
 PKG="$(cd "$HERE/../.." && pwd)"
 PARAMS="$PKG/params/G1_config.yaml"
 OUT="$(mktemp -d)"

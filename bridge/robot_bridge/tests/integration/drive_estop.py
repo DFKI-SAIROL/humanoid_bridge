@@ -11,10 +11,10 @@ import time
 import rclpy
 import yaml
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Float32, String, UInt16
+from std_msgs.msg import Bool, Float32, String, UInt16
 from unitree_hg.msg import LowCmd
 
-from robot_bridge.cmd_client import RobotCmdClient
+from robot_bridge.cmd_client import RobotCmdClient, pack_robot_cmd
 
 NUM_MOTORS = 29
 KEY_R1, KEY_L1, KEY_R2 = 1 << 0, 1 << 1, 1 << 4
@@ -31,6 +31,7 @@ def load_params(path):
         "kp": [float(params[n]["kp"]) for n in names],
         "kd": [float(params[n]["kd"]) for n in names],
         "damp_kd": float(params["estop"]["damp_kd"]),
+        "ready_q": [float(v) for v in params["ready_q"]],
     }
 
 
@@ -41,6 +42,8 @@ class Driver:
         self.client = RobotCmdClient(node, num_dof=NUM_MOTORS, control_frequency=50.0)
         self.keys = node.create_publisher(UInt16, "/fake_g1/keys", 10)
         self.roll = node.create_publisher(Float32, "/fake_g1/roll", 10)
+        self.remote = node.create_publisher(Bool, "/fake_g1/remote", 10)
+        self.pause = node.create_publisher(Bool, "/fake_g1/pause", 10)
         latched = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -76,7 +79,8 @@ class Driver:
         # A press published before discovery matched is lost (Fast DDS).
         end = time.monotonic() + timeout
         while time.monotonic() < end:
-            if self.keys.get_subscription_count() and self.roll.get_subscription_count():
+            inputs = (self.keys, self.roll, self.remote, self.pause)
+            if all(p.get_subscription_count() for p in inputs):
                 return True
             rclpy.spin_once(self.node, timeout_sec=0.01)
         return False
@@ -113,6 +117,13 @@ class Driver:
             ok = ok and all(abs(m.q - q) < 1e-2 for m in motors)
         return ok, f"q[0]={motors[0].q:.4f} kp[0]={motors[0].kp:.1f} kd[0]={motors[0].kd:.1f}"
 
+    def at(self, q):
+        motors = self.motors()
+        if not motors:
+            return False, "no /lowcmd"
+        worst = max(abs(m.q - w) for m, w in zip(motors, q))
+        return worst < 1e-2, f"worst |q - wanted| {worst:.4f}"
+
     def rate(self, seconds=1.0):
         start = self.count
         self.spin(seconds)
@@ -144,6 +155,39 @@ class Driver:
         self.check("fake_g1 inputs matched", self.wait_inputs())
         self.check_state("starts DISARMED", "DISARMED")
 
+        # Arming needs the remote (estop.require_remote); fake_g1 sends its header by default.
+        count = self.count
+        self.remote.publish(Bool(data=False))
+        self.spin(1.0)
+        reply = self.start(0.123)
+        self.check(
+            "start_control refused without the remote",
+            not reply.success and "remote" in reply.message,
+            reply.message,
+        )
+        self.remote.publish(Bool(data=True))
+        self.spin(0.3)
+
+        # Gate 9: a wrong length moves nothing.
+        reply = self.client.start_control(default_position=[0.1] * 14, timeout_sec=30.0)
+        self.check("start_control with 14 values refused", not reply.success, reply.message)
+        reply = self.client.start_control(default_position=[5.0] * NUM_MOTORS, timeout_sec=30.0)
+        self.check("start_control out of range refused", not reply.success, reply.message)
+
+        # Another /lowcmd writer (a restarted robot's motion service) blocks arming.
+        other = self.node.create_publisher(LowCmd, "/lowcmd", 10)
+        self.spin(1.0)
+        reply = self.start(0.123)
+        self.check(
+            "start_control refused with another /lowcmd publisher",
+            not reply.success and "/lowcmd" in reply.message,
+            reply.message,
+        )
+        self.node.destroy_publisher(other)
+        self.spin(1.0)
+        self.check_state("still DISARMED", "DISARMED")
+        self.check("refusals published nothing", self.count == count, f"{self.count - count} frames")
+
         # Remote damp while disarmed: latches, publishes nothing.
         self.press(KEY_L1 | KEY_R1)
         self.press(0)
@@ -162,6 +206,15 @@ class Driver:
         self.spin(RAMP_SECONDS)
         self.check_state("ARMED", "ARMED")
         self.check("ramp reached 0.123", *self.frame(kp, kd, q=0.123))
+
+        # An order outside [0, 1] used to throw on the executor thread and end the bridge.
+        n = NUM_MOTORS
+        bad = pack_robot_cmd([0.3] * n, [0.0] * n, [0.0] * n, kp, kd, interpolation_order=2.0, duration=0.1)
+        self.client.cmd_publisher.publish(bad)
+        self.spin(0.3)
+        hz = self.rate(0.5)
+        self.check("bad interpolation_order dropped, bridge alive", hz > 500, f"{hz:.0f} Hz")
+        self.check("ARMED, still at 0.123", *self.frame(kp, kd, q=0.123))
 
         # Operator damp.
         self.client.estop_damp()
@@ -192,9 +245,11 @@ class Driver:
         self.check("ramp reached 0.2", *self.frame(kp, kd, q=0.2))
         self.client.stop_control()
         self.check_state("stop_control holds without latch", "STOPPED hold stop")
-        self.check("start_control without reset", self.start(0.2).success)
+        reply = self.client.start_control(default_position=[], timeout_sec=30.0)
+        self.check("start_control [] without reset", reply.success, reply.message)
         self.spin(RAMP_SECONDS)
         self.check_state("ARMED again", "ARMED")
+        self.check("[] ramped to ready_q", *self.at(self.params["ready_q"]))
 
         # Command timeout: hold, latched.
         self.send(0.25, hold_position=False, duration=0.1)
@@ -230,6 +285,21 @@ class Driver:
         self.press(0)
         self.check_state("L1+R1+R2 -> damp", "LATCHED damp remote_damp")
         self.spin(0.3)
+
+        # /lowstate gone: damp frames for 1 s more, then silent until reset.
+        self.pause.publish(Bool(data=True))
+        self.spin(0.6)
+        count = self.count
+        self.spin(0.3)
+        self.check("frames go on right after the loss", self.count > count, f"{self.count - count}")
+        self.check_state("silent 1.2 s after the loss", "LATCHED damp remote_damp silent")
+        count = self.count
+        self.spin(0.5)
+        self.check("silent latch publishes nothing", self.count == count, f"{self.count - count}")
+        self.pause.publish(Bool(data=False))
+        self.spin(0.5)
+        self.check("estop_reset once /lowstate is back", self.client.estop_reset().success)
+        self.check_state("reset from silent -> DISARMED", "DISARMED")
         self.check_recording()
 
     def check_recording(self):

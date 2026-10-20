@@ -159,14 +159,26 @@ namespace sairol_bridge
         RCLCPP_INFO(nh->get_logger(), "Lower limbs kd range: [%.3f, %.3f]", lower_limbs_kd_min_, lower_limbs_kd_max_);
         RCLCPP_INFO(nh->get_logger(), "IMU RPY threshold = %.3f", imu_rpy_threshold_);
 
+        // Gate 2: optional; per joint `<name>.q_rate_limit` overrides it. 0 = no limit.
+        float_t q_rate_limit_default = 0;
+        const bool has_rate_default = nh->get_parameter("q_rate_limit_default", q_rate_limit_default);
+
         std::vector<std::string> joint_names;
         if (nh->get_parameter("joint_names", joint_names))
         {
             joints_.clear();
             bool ret = true;
+            int own_rate_limits = 0;
             for (const auto &name : joint_names)
             {
                 Joint joint_info;
+                joint_info.q_rate_limit = q_rate_limit_default;
+                own_rate_limits += nh->get_parameter(name + ".q_rate_limit", joint_info.q_rate_limit) ? 1 : 0;
+                if (!(joint_info.q_rate_limit >= 0))
+                {
+                    RCLCPP_ERROR(nh->get_logger(), "%s: q_rate_limit must be >= 0", name.c_str());
+                    return false;
+                }
                 ret = ret && nh->get_parameter(name + ".idx", joint_info.idx);
                 ret = ret && nh->get_parameter(name + ".q_min", joint_info.q_min);
                 ret = ret && nh->get_parameter(name + ".q_max", joint_info.q_max);
@@ -192,6 +204,16 @@ namespace sairol_bridge
                 return false;
             }
             RCLCPP_INFO(nh->get_logger(), "Loaded %ld joint limits", joints_.size());
+            if (has_rate_default)
+            {
+                RCLCPP_INFO(nh->get_logger(), "Target speed limit: %.2f rad/s, %d joints with their own",
+                            q_rate_limit_default, own_rate_limits);
+            }
+            else
+            {
+                RCLCPP_WARN(nh->get_logger(), "No q_rate_limit_default: target speed is unlimited on %d joints",
+                            numJoint_ - own_rate_limits);
+            }
         }
         else
         {
@@ -280,14 +302,17 @@ namespace sairol_bridge
             }
         }
 
+        nh->get_parameter("estop.require_remote", estopConfig_.require_remote);
+
         latch_ = estop::SafetyLatch(estopConfig_);
         RCLCPP_INFO(nh->get_logger(),
                     "E-stop: damp_kd %.1f, remote combos 0x%04x damp / 0x%04x hold; modes stop %s, imu %s, "
-                    "state_loss %s, state_invalid %s, cmd_timeout %s",
+                    "state_loss %s, state_invalid %s, cmd_timeout %s; arming %s the remote",
                     estopConfig_.damp_kd, estopConfig_.combo_damp, estopConfig_.combo_hold,
                     estop::name(estopConfig_.stop), estop::name(estopConfig_.imu),
                     estop::name(estopConfig_.state_loss), estop::name(estopConfig_.state_invalid),
-                    estop::name(estopConfig_.cmd_timeout));
+                    estop::name(estopConfig_.cmd_timeout),
+                    estopConfig_.require_remote ? "needs" : "does not need");
         return true;
     }
 
@@ -362,6 +387,14 @@ namespace sairol_bridge
                 }
 
                 std::unique_lock<std::mutex> lock(mutex_);
+                const double state_age = (nh->get_clock()->now() - last_state_time_).seconds();
+                if (estop::silenceDue(latch_.latched(), latch_.publishing(), state_age) && latch_.silence())
+                {
+                    syncLatchFlags_();
+                    const std::string state = latch_.describe(controlStarted_);
+                    publishBridgeState_(state);
+                    RCLCPP_WARN(nh->get_logger(), "No /lowstate for %.1f s: %s", state_age, state.c_str());
+                }
                 // Not while latched: a fault can land between initControl_ and commitArm.
                 if (controlStarted_ && !latch_.latched())
                 {
@@ -452,7 +485,7 @@ namespace sairol_bridge
         const auto dt_state_ = (clock.now() - last_state_time).seconds();
 
         // Check if the state message is received within the expected interval
-        if (dt_state_ > 0.2)
+        if (dt_state_ > estop::STATE_LOSS_S)
         {
             RCLCPP_ERROR_THROTTLE(nh->get_logger(), clock, 1000,
                                   "Robot signal lost! No LowState message received for %.2f seconds. "
@@ -564,6 +597,21 @@ namespace sairol_bridge
         finishControl_();
     }
 
+    bool BridgeCore::remoteAllowsArming_(std::string &why)
+    {
+        if (!estopConfig_.require_remote)
+        {
+            return true;
+        }
+        const double age = nh->get_clock()->now().seconds() - lastRemoteHeader_.load();
+        if (age <= estop::REMOTE_TIMEOUT_S)
+        {
+            return true;
+        }
+        why = "remote not connected: switch the remote on (estop.require_remote)";
+        return false;
+    }
+
     bool BridgeCore::armControl_(bridge_interface::msg::RobotCmd default_cmd, std::string &why)
     {
         uint64_t generation = 0;
@@ -575,6 +623,10 @@ namespace sairol_bridge
                 return false;
             }
             generation = latch_.generation();
+        }
+        if (!remoteAllowsArming_(why) || !robotAllowsArming_(why))
+        {
+            return false;
         }
 
         // initControl_ sets controlStarted_; update_() then publishes tracking
@@ -656,6 +708,18 @@ namespace sairol_bridge
 
     bool BridgeCore::checkCommand_(bridge_interface::msg::RobotCmd::SharedPtr robotCommand)
     {
+        // An order outside [0, 1] made calculateInterpolationParams_ throw on the executor
+        // thread and end the process; a NaN duration made tValid_ NaN, so no timeout.
+        const float_t order = robotCommand->interpolation_order;
+        const float_t duration = robotCommand->duration;
+        if (!std::isfinite(order) || order < 0 || order > 1 || !std::isfinite(duration) || duration < 0)
+        {
+            RCLCPP_ERROR(nh->get_logger(),
+                         "Command check failed: interpolation_order %.3f (needs [0, 1]) or duration %.3f (needs >= 0).",
+                         order, duration);
+            return false;
+        }
+
         // Check if the command message has valid data
         if (robotCommand->motor_cmd.size() != static_cast<size_t>(numJoint_))
         {
@@ -799,8 +863,34 @@ namespace sairol_bridge
     {
         auto default_position = request->default_position;
         bridge_interface::msg::RobotCmd default_cmd;
-        
-        if (default_position.size() == numJoint_ )
+
+        // Gate 9: empty means ready_q_; any other length, or a value that is not finite or is
+        // over 0.1 rad outside its joint range (a typo such as 1e3), moves nothing.
+        std::string bad;
+        if (!default_position.empty() && default_position.size() != static_cast<size_t>(numJoint_))
+        {
+            bad = "default_position has " + std::to_string(default_position.size()) + " values, expected " +
+                  std::to_string(numJoint_) + " (or none for the ready pose)";
+        }
+        for (size_t i = 0; bad.empty() && i < default_position.size(); ++i)
+        {
+            const float_t q = static_cast<float_t>(default_position[i]);   // as MotorCmd.q will hold it
+            if (!std::isfinite(q) || q < joints_[i].q_min - 0.1f || q > joints_[i].q_max + 0.1f)
+            {
+                bad = "default_position[" + std::to_string(i) + "] = " + std::to_string(default_position[i]) +
+                      " is not finite or outside [" + std::to_string(joints_[i].q_min) + ", " +
+                      std::to_string(joints_[i].q_max) + "]";
+            }
+        }
+        if (!bad.empty())
+        {
+            RCLCPP_WARN(nh->get_logger(), "Start control refused: %s", bad.c_str());
+            response->success = false;
+            response->message = bad;
+            return;
+        }
+
+        if (default_position.size() == static_cast<size_t>(numJoint_))
         {
             default_cmd.motor_cmd.resize(numJoint_);
             for (int i = 0; i < numJoint_; ++i)
@@ -823,6 +913,7 @@ namespace sairol_bridge
         }
         RCLCPP_INFO(nh->get_logger(), "Starting control...");
         response->success = true;
-        response->message = "start control with invalid size of default position, kp or kd";
+        response->message = default_position.empty() ? "armed: ramping to the ready pose"
+                                                     : "armed: ramping to default_position";
     }
 }

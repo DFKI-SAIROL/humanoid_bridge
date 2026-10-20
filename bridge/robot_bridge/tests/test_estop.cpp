@@ -375,3 +375,64 @@ TEST(Latch, StopDuringArmingVoidsIt)
     latch.trigger(Cause::Stop, true);   // tracking had started again
     EXPECT_FALSE(latch.commitArm(generation));
 }
+
+// --- remote header -----------------------------------------------------------
+
+TEST(Remote, HeaderMeansConnected)
+{
+    const uint8_t on[40] = {0x55, 0x51};
+    const uint8_t off[40] = {};
+    EXPECT_TRUE(remoteHeader(on, sizeof(on)));
+    EXPECT_FALSE(remoteHeader(off, sizeof(off)));     // measured: all 40 bytes 0 with the remote off
+}
+
+TEST(Remote, ShortOrNullIsNotConnected)
+{
+    const uint8_t on[2] = {0x55, 0x51};
+    EXPECT_FALSE(remoteHeader(on, 1));
+    EXPECT_FALSE(remoteHeader(nullptr, 40));
+}
+
+// --- silence after state loss ------------------------------------------------
+
+TEST(Silence, DueOnlyAfterStateLossPlusGrace)
+{
+    EXPECT_FALSE(silenceDue(true, true, STATE_LOSS_S + SILENCE_AFTER_S - 0.01));
+    EXPECT_TRUE(silenceDue(true, true, STATE_LOSS_S + SILENCE_AFTER_S + 0.01));
+    EXPECT_FALSE(silenceDue(false, true, 10.0));   // STOPPED is not latched: its fault latches first
+    EXPECT_FALSE(silenceDue(true, false, 10.0));   // already silent
+}
+
+TEST(Silence, LatchedGoesSilentThenResetsToIdle)
+{
+    auto latch = latchedFromTracking(Cause::StateLoss);
+    ASSERT_TRUE(latch.publishing());
+    const auto generation = latch.generation();
+    EXPECT_TRUE(latch.silence());
+    EXPECT_FALSE(latch.publishing());
+    EXPECT_TRUE(latch.latched());
+    EXPECT_NE(latch.generation(), generation);
+    EXPECT_FALSE(latch.silence());                 // no change the second time
+    std::string why;
+    ASSERT_TRUE(latch.reset(false, why));
+    EXPECT_EQ(latch.state(), State::Idle);
+}
+
+TEST(Silence, StaysSilentThroughLaterTriggers)
+{
+    auto latch = latchedFromTracking(Cause::StateLoss);
+    latch.silence();
+    latch.trigger(Cause::ServiceHold, false);
+    EXPECT_FALSE(latch.publishing());              // a restarted robot must not get old frames
+    EXPECT_EQ(latch.mode(), Mode::Hold);
+}
+
+TEST(Silence, NotWhileIdleOrStopped)
+{
+    SafetyLatch idle;
+    EXPECT_FALSE(idle.silence());
+    SafetyLatch stopped;
+    stopped.trigger(Cause::Stop, true);
+    EXPECT_FALSE(stopped.silence());
+    EXPECT_TRUE(stopped.publishing());
+}

@@ -1,4 +1,5 @@
 #include "G1_bridge.hpp"
+#include "gates.hpp"
 // #include "unitree_hg/message_utils.hpp"
 
 using namespace std::chrono_literals;
@@ -104,6 +105,19 @@ bool sairol_bridge::G1Bridge::checkExternalPublisher_(std::string topic_name)
 }
 
 
+bool sairol_bridge::G1Bridge::robotAllowsArming_(std::string &why)
+{
+    // This bridge's own publisher counts once.
+    const size_t publishers = nh->count_publishers("/lowcmd");
+    if (publishers > 1)
+    {
+        why = std::to_string(publishers - 1) + " other /lowcmd publisher(s), e.g. the robot's motion service "
+              "after a restart: release it (L2 + R2, or tools/g1-release-lowcmd.py)";
+        return false;
+    }
+    return true;
+}
+
 void sairol_bridge::G1Bridge::stop()
 {
     if (handTimer_)
@@ -174,6 +188,10 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     // The remote rides on LowState at 500 Hz; /wirelesscontroller stays silent in debug mode.
     const uint16_t keys = estop::remoteKeys(msg->wireless_remote.data(), msg->wireless_remote.size());
     remoteKeys_ = keys;
+    if (estop::remoteHeader(msg->wireless_remote.data(), msg->wireless_remote.size()))
+    {
+        lastRemoteHeader_ = nh->get_clock()->now().seconds();
+    }
     const estop::Cause remote = estop::remoteOnset(estop::remoteCause(keys, estopConfig_), lastRemote_);
     if (remote != estop::Cause::None)
     {
@@ -216,6 +234,15 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
             cmd.dq = cmdParams_[i].dq_0 + cmdParams_[i].dq_1 * phase;
         }
 
+        // Gates 1 and 2 (docs/psi0_gates.md): the joint range, then the target speed.
+        if (cmd.q < joint_info.q_min || cmd.q > joint_info.q_max)
+        {
+            RCLCPP_WARN_THROTTLE(nh->get_logger(), *nh->get_clock(), 1000,
+                                 "joint %d target %.3f outside [%.3f, %.3f]: clamped",
+                                 i, cmd.q, joint_info.q_min, joint_info.q_max);
+        }
+        cmd.q = gates::limitTarget(cmd.q, last_cmd.q, joint_info, controlDt_);
+
         cmd.kp = cmdParams_[i].kp_0 + cmdParams_[i].kp_1 * phase;
         cmd.kd = cmdParams_[i].kd_0 + cmdParams_[i].kd_1 * phase;
         cmd.dq = std::clamp(cmd.dq, -joint_info.dq_limit, joint_info.dq_limit);
@@ -231,9 +258,9 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
         {
             cmd.tau = cmdParams_[i].tau_0 + cmdParams_[i].tau_1 * phase;
         }  
-        cmd.q = std::clamp(cmd.q, 
-            (cmd.kd * (currentState_.motor_state[i].dq - cmd.dq) - joint_info.tau_limit) / cmd.kp + currentState_.motor_state[i].q, 
-            (cmd.kd * (currentState_.motor_state[i].dq - cmd.dq) + joint_info.tau_limit) / cmd.kp + currentState_.motor_state[i].q);
+        // Gate 4: the torque window; at kp 0 the measured q, never inf or NaN.
+        cmd.q = gates::torqueWindow(cmd.q, currentState_.motor_state[i].q, currentState_.motor_state[i].dq,
+                                    cmd.dq, cmd.kp, cmd.kd, joint_info.tau_limit);
 
         last_cmd.q = cmd.q;
         last_cmd.dq = cmd.dq;
@@ -257,11 +284,16 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
 {
     last_state_time_ = nh->get_clock()->now();
 
-    for (int i = 0; i < numJoint_; ++i)
     {
-        lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
-        lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
-        lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
+        // Gate 2 ramps from lastCommand_: all zeros at boot, which would pull every joint toward 0.
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (int i = 0; i < numJoint_; ++i)
+        {
+            lastCommand_.motor_cmd[i].q = currentState_.motor_state[i].q;
+            lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
+            lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
+            lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
+        }
     }
 
     calculateInterpolationParams_(0.0, 1, true);
@@ -720,6 +752,14 @@ void sairol_bridge::G1Bridge::publishHandCommand_()
         // Per side, so a silent left hand does not drop the right. A released
         // hand keeps getting explicit limp frames rather than silence: an
         // overheating finger should go slack now, not on the device's timeout.
+        // Not once its state is gone for 1.2 s: a restarted hand must not get old frames.
+        const bool gone = !hand.state_seen ||
+                          (nh->get_clock()->now() - hand.state_time).seconds() >
+                              estop::STATE_LOSS_S + estop::SILENCE_AFTER_S;
+        if (!hand.live && gone)
+        {
+            continue;
+        }
         publishOneHand_(side, !hand.live);
     }
 }
@@ -742,6 +782,14 @@ void sairol_bridge::G1Bridge::startHandControlServiceCB_(
         response->success = false;
         response->message = "e-stop latched; call /estop_reset first";
         RCLCPP_WARN(nh->get_logger(), "Hand start refused: %s", response->message.c_str());
+        return;
+    }
+    std::string why;
+    if (!remoteAllowsArming_(why))
+    {
+        response->success = false;
+        response->message = why;
+        RCLCPP_WARN(nh->get_logger(), "Hand start refused: %s", why.c_str());
         return;
     }
 

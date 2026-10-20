@@ -3,6 +3,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "$HERE/loopback_dds.sh"
 # The package root, not the repo root: this keeps working if the repo is
 # rearranged around it.
 PKG="$(cd "$HERE/../.." && pwd)"

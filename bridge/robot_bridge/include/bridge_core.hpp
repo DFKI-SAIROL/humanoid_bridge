@@ -77,8 +77,13 @@ namespace sairol_bridge
         // E-stop (docs/estop.md). Every stop goes through enterStop_, from any thread.
         bool loadEstopParameters_();
         void enterStop_(estop::Cause cause);
-        // The only way the arming services start control: refused while latched.
+        // The only way the arming services start control: refused while latched,
+        // and without the remote when estop.require_remote.
         bool armControl_(bridge_interface::msg::RobotCmd default_cmd, std::string &why);
+        // False only when estop.require_remote and no remote header for REMOTE_TIMEOUT_S.
+        bool remoteAllowsArming_(std::string &why);
+        // Robot-specific arming refusals. Default: none.
+        virtual bool robotAllowsArming_(std::string &why) { (void)why; return true; }
         // Called by update_() with mutex_ held, while stopped. Default: silent.
         virtual void publishStopCommand_() {}
         void syncLatchFlags_();   // mutex_ held
@@ -137,6 +142,7 @@ namespace sairol_bridge
         std::atomic<bool> latched_{false};
         std::atomic<bool> stopPublishing_{false};
         std::atomic<uint16_t> remoteKeys_{0};
+        std::atomic<double> lastRemoteHeader_{-1e9};   // clock seconds; set by the robot's state handler
         estop::Cause lastFault_{estop::Cause::None};   // control thread only
 
 

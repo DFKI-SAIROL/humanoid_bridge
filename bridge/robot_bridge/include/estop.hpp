@@ -32,6 +32,14 @@ namespace sairol_bridge::estop
         KEY_UP = 1 << 12, KEY_RIGHT = 1 << 13, KEY_DOWN = 1 << 14, KEY_LEFT = 1 << 15
     };
 
+    // /lowstate older than this is a state_loss fault.
+    constexpr double STATE_LOSS_S = 0.2;
+    // A latch stops publishing this long after /lowstate went missing: a robot
+    // that restarts meanwhile must not get old frames (docs/psi0_gates.md).
+    constexpr double SILENCE_AFTER_S = 1.0;
+    // The remote counts as connected while its header arrived this recently.
+    constexpr double REMOTE_TIMEOUT_S = 0.5;
+
     struct Config
     {
         float_t damp_kd{8.0f};
@@ -42,6 +50,7 @@ namespace sairol_bridge::estop
         Mode state_loss{Mode::Damp};
         Mode state_invalid{Mode::Damp};
         Mode cmd_timeout{Mode::Hold};
+        bool require_remote{false};   // arming services refused without the remote
     };
 
     bool isOperator(Cause cause);
@@ -56,6 +65,10 @@ namespace sairol_bridge::estop
 
     // LowState.wireless_remote: bytes 2-3, little-endian. 0 if the buffer is short.
     uint16_t remoteKeys(const uint8_t *raw, size_t size);
+    // Bytes 0-1 are 0x55 0x51 while a remote is connected; all 40 are 0 without one.
+    bool remoteHeader(const uint8_t *raw, size_t size);
+    // A publishing latch goes silent once /lowstate is older than STATE_LOSS_S + SILENCE_AFTER_S.
+    bool silenceDue(bool latched, bool publishing, double state_age_s);
     bool held(uint16_t keys, uint16_t combo);
     // Damp wins when both combos are held.
     Cause remoteCause(uint16_t keys, const Config &config);
@@ -101,6 +114,9 @@ namespace sairol_bridge::estop
         // Arming services: refused while latched, and when a trigger landed after
         // `generation` was read.
         bool commitArm(uint64_t generation);
+        // Latched and publishing -> latched and silent; reset then leaves it Idle.
+        // Stays silent through later triggers. True if it changed.
+        bool silence();
 
         State state() const { return state_; }
         Mode mode() const { return mode_; }

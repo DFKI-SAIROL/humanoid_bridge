@@ -1,5 +1,6 @@
 # remote control, read from /lowstate.wireless_remote (docs/estop.md):
 # e-stop damp: L1 + R1    e-stop hold: R1 + R2    (set under estop:)
+# arming needs the remote switched on (estop.require_remote)
 # start, ready, zero position and e-stop reset are services only:
 #   /start_control, /ready_position_control, /zero_position_control, /estop_reset
 
@@ -20,6 +21,7 @@ robot_bridge:
       damp_kd: 8.0                      # float: an integer here fails the load
       remote_combo_damp: ["L1", "R1"]
       remote_combo_hold: ["R1", "R2"]
+      require_remote: true              # arming services refused without the remote's header
       mode:                             # damp | hold
         stop: hold
         imu: damp
@@ -27,17 +29,20 @@ robot_bridge:
         state_invalid: damp
         cmd_timeout: hold
 
-    # kp 0 makes publishLowCommand_'s torque-implied q bound a no-op for that
-    # joint: the clamp is derived from kp, so a zero-gain joint is unbounded.
+    # Gate 5 (docs/psi0_gates.md). upper_limbs = joints with if_strong_joint false
+    # (arms and ankles), lower_limbs = strong (hips, knees, waist).
     upper_limbs_kp_min: 0.0
-    upper_limbs_kp_max: 5000.0
+    upper_limbs_kp_max: 150.0
     upper_limbs_kd_min: 0.0
-    upper_limbs_kd_max: 5000.0
+    upper_limbs_kd_max: 10.0
 
     lower_limbs_kp_min: 0.0
-    lower_limbs_kp_max: 5000.0
+    lower_limbs_kp_max: 350.0
     lower_limbs_kd_min: 0.0
-    lower_limbs_kd_max: 5000.0
+    lower_limbs_kd_max: 10.0
+
+    # Gate 2: max target speed, rad/s. A joint's own q_rate_limit overrides it (arms 3.0).
+    q_rate_limit_default: 6.0
 
     joint_names: [
                     "L_LEG_HIP_PITCH", "L_LEG_HIP_ROLL", "L_LEG_HIP_YAW", "L_LEG_KNEE", "L_LEG_ANKLE_PITCH", "L_LEG_ANKLE_ROLL",
@@ -122,7 +127,7 @@ robot_bridge:
       idx: 4
       q_min: -0.87267
       q_max: 0.5236
-      dq_limit: 37.0
+      dq_limit: 30.0      # URDF velocity (gate 6)
       tau_limit: 35.0
       kp: 60.0
       kd: 2.0
@@ -133,7 +138,7 @@ robot_bridge:
       idx: 5
       q_min: -0.2618
       q_max: 0.2618
-      dq_limit: 37.0
+      dq_limit: 30.0      # URDF velocity (gate 6)
       tau_limit: 35.0
       kp: 60.0
       kd: 2.0
@@ -188,7 +193,7 @@ robot_bridge:
       idx: 10
       q_min: -0.87267
       q_max: 0.5236
-      dq_limit: 37.0
+      dq_limit: 30.0      # URDF velocity (gate 6)
       tau_limit: 35.0
       kp: 60.0
       kd: 2.0
@@ -199,7 +204,7 @@ robot_bridge:
       idx: 11
       q_min: -0.2618
       q_max: 0.2618
-      dq_limit: 37.0
+      dq_limit: 30.0      # URDF velocity (gate 6)
       tau_limit: 35.0
       kp: 60.0
       kd: 2.0
@@ -221,7 +226,7 @@ robot_bridge:
       idx: 13
       q_min: -0.52
       q_max: 0.52
-      dq_limit: 37.0
+      dq_limit: 30.0      # URDF velocity (gate 6)
       tau_limit: 35.0
       kp: 300.0
       kd: 3.0
@@ -232,7 +237,7 @@ robot_bridge:
       idx: 14
       q_min: -0.52
       q_max: 0.52
-      dq_limit: 37.0
+      dq_limit: 30.0      # URDF velocity (gate 6)
       tau_limit: 35.0
       kp: 300.0
       kd: 3.0
@@ -244,6 +249,7 @@ robot_bridge:
       q_min: -3.0892
       q_max: 2.6704
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 100.0
       kd: 2.0
@@ -255,6 +261,7 @@ robot_bridge:
       q_min: -1.5882
       q_max: 2.2515
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 100.0
       kd: 2.0 
@@ -266,6 +273,7 @@ robot_bridge:
       q_min: -2.618
       q_max: 2.618
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 50.0
       kd: 2.0
@@ -277,6 +285,7 @@ robot_bridge:
       q_min: -1.0472
       q_max: 2.0944
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 50.0
       kd: 2.0
@@ -288,6 +297,7 @@ robot_bridge:
       q_min: -1.972222054
       q_max: 1.972222054
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 20.0
       kd: 1.0
@@ -299,6 +309,7 @@ robot_bridge:
       q_min: -1.614429558
       q_max: 1.614429558
       dq_limit: 22.0
+      q_rate_limit: 3.0
       tau_limit: 5.0
       kp: 20.0
       kd: 1.0
@@ -310,6 +321,7 @@ robot_bridge:
       q_min: -1.614429558
       q_max: 1.614429558
       dq_limit: 22.0
+      q_rate_limit: 3.0
       tau_limit: 5.0
       kp: 20.0
       kd: 1.0
@@ -321,6 +333,7 @@ robot_bridge:
       q_min: -3.0892
       q_max: 2.6704
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 100.0
       kd: 2.0
@@ -332,6 +345,7 @@ robot_bridge:
       q_min: -2.2515
       q_max: 1.5882
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 100.0
       kd: 2.0
@@ -343,6 +357,7 @@ robot_bridge:
       q_min: -2.618
       q_max: 2.618
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 50.0
       kd: 2.0
@@ -354,6 +369,7 @@ robot_bridge:
       q_min: -1.0472
       q_max: 2.0944
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 50.0
       kd: 2.0
@@ -365,6 +381,7 @@ robot_bridge:
       q_min: -1.972222054
       q_max: 1.972222054
       dq_limit: 37.0
+      q_rate_limit: 3.0
       tau_limit: 25.0
       kp: 20.0
       kd: 1.0
@@ -376,6 +393,7 @@ robot_bridge:
       q_min: -1.614429558
       q_max: 1.614429558
       dq_limit: 22.0
+      q_rate_limit: 3.0
       tau_limit: 5.0
       kp: 20.0
       kd: 1.0
@@ -387,6 +405,7 @@ robot_bridge:
       q_min: -1.614429558
       q_max: 1.614429558
       dq_limit: 22.0
+      q_rate_limit: 3.0
       tau_limit: 5.0
       kp: 20.0
       kd: 1.0
