@@ -105,8 +105,10 @@ the two orderings side by side.
 - `/robot_cmd` echoes but the robot does not move: `start_control` was never
   called, or it returned failure.
 - Robot lurches on start: `start_control` moved to `default_position` over 2 s
-  from wherever it stood. A wrong-length list is not rejected — the bridge
-  silently uses `ready_q_` instead.
+  from wherever it stood. An empty list arms to `ready_q_`; any other wrong
+  length is refused, and nothing moves.
+- `start_control` refused on the G1: the remote is off (`estop.require_remote`),
+  or another program writes `/lowcmd` (release it: L2 + R2).
 - Robot freezes holding the last pose at full gains: watchdog. Control ends
   `duration + 0.2 s` after the last command unless `hold_position`.
 - `ModuleNotFoundError: bridge_interface`: workspace not sourced.

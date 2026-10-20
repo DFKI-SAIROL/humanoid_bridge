@@ -27,9 +27,13 @@ Closes roadmap `feat/g1-finish-control-release`.
 | `DISARMED` | nothing | dropped | allowed | arm → `ARMED` |
 | `ARMED` | tracking frames (today's path) | accepted | allowed | stop → `STOPPED`, e-stop or fault → `LATCHED` |
 | `STOPPED(mode)` | stop frame, 1 kHz | dropped | allowed | arm → `ARMED`, e-stop or fault → `LATCHED` |
-| `LATCHED(mode, cause)` | stop frame, 1 kHz (nothing if latched from `DISARMED`) | dropped | **refused** | `/estop_reset` → `STOPPED`, or `DISARMED` if silent |
+| `LATCHED(mode, cause)` | stop frame, 1 kHz (nothing if latched from `DISARMED`, or 1.2 s after `/lowstate` stopped) | dropped | **refused** | `/estop_reset` → `STOPPED`, or `DISARMED` if silent |
 
 - Arming services: `/start_control`, `/ready_position_control`, `/zero_position_control`, `/start_hand_control`.
+- `estop.require_remote: true`: every arming service is refused unless the remote's header (`0x55 0x51`) arrived in the last 0.5 s. Measured 2026-10-20: remote off = all 40 bytes 0; at rest the bytes stay constant, so only the header counts. Remote lost while armed: open question.
+- Latched, `/lowstate` older than 1.2 s (0.2 s `state_loss` + 1 s): the latch goes silent and stays silent until reset (`LATCHED … silent`). A robot that restarts meanwhile runs its own motion service; old frames would fight it (2026-10-20).
+- G1 arming is also refused while any other program publishes `/lowcmd` (a restarted robot's motion service): release it first.
+- Hands: a released hand whose state is gone for 1.2 s gets no more limp frames.
 - Arming moves the robot: `initControl_` ramps to the start pose over `duration` (2 s).
 - One entry point `enterStop_(cause)` for every trigger, any thread. It sets the state atomically, snapshots measured q under `mutex_`, then calls `finishControl_`.
 - Mode changes while stopped: an operator e-stop sets the mode it names (hold after damp re-stiffens at the current pose). A fault only turns `hold` into `damp`.
@@ -103,6 +107,7 @@ estop:
   damp_kd: 8.0
   remote_combo_damp: ["L1", "R1"]
   remote_combo_hold: ["R1", "R2"]
+  require_remote: true   # arming refused without the remote
   mode:              # damp | hold; operator e-stops are fixed
     stop: hold
     imu: damp
@@ -125,8 +130,8 @@ estop:
 
 | Level | What |
 |---|---|
-| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing |
-| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`. Not covered: `state_loss`, `state_invalid` |
+| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss |
+| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `state_loss` → silent after 1.2 s. Not covered: `state_invalid` |
 | `tools/test.sh --wire` | GEAR's stream ends in a `cmd_timeout` hold |
 | gantry | G0–G6 below |
 

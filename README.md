@@ -36,9 +36,11 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | Dex3 hand path: `HandCmd`, the 100 Hz loop, per-side guards | upstream | added here, no PR yet |
 | `checkMotorCmd_` using `std::abs` (upstream's bare `abs` truncated \|v\| < 1 to 0) | upstream | fixed here, behaviour change on the body path |
 | Config keymap headers advertising keys the source comments out | upstream | fixed here, no PR yet |
-| `start_control` answers `success: true` on a wrong length, then moves to `ready_q_` | upstream | **open**, `fix/start-control-validate` |
+| `start_control` answers `success: true` on a wrong length, then moves to `ready_q_` | upstream | fixed here: empty = `ready_q_`, any other wrong length refused |
 | G1 `_default_pos` is 27 long while kp/kd are 29 | upstream | **open**, `fix/g1-default-pos-29` |
-| `finishControl_` only logs on G1, H1, H1_2, so an abort holds at full gains | upstream | **open**, `feat/g1-finish-control-release` |
+| `finishControl_` only logs on G1, H1, H1_2, so an abort holds at full gains | upstream | G1: fixed here by the e-stop latch (`docs/estop.md`); H1, H1_2: open |
+| G1 target gates: range clamp, speed limit, kp-0 torque window (`docs/psi0_gates.md`) | upstream | added here, no PR yet |
+| G1 arming needs the remote (`estop.require_remote`) | upstream | added here, no PR yet |
 | Two-layer split, `robot_bridge_py` -> `robot_bridge` rename | fork | this project's structure |
 | `robot_stacks/g1/` (`g1_stack`, `g1_camera`) | fork | whether it stays here is DFKI's call |
 | `tools/` | fork | build, test and bring-up helpers |
@@ -91,9 +93,13 @@ bridge, wait for it, arm.
 
 ```bash
 tools/g1-bringup.sh --dry-run                        # print the plan, run nothing
-tools/g1-bringup.sh                                  # release + bridge, no arming
+tools/g1-bringup.sh --iface enp4s0                   # release + bridge, no arming
 tools/g1-bringup.sh --arm-from-measured --robot-is-clear
+tools/g1-bringup.sh --stop                           # every G1_bridge; SIGKILL if SIGINT hangs
 ```
+
+It sources ROS and `setup_unitree.sh` itself. The release runs on
+`$UNITREE_PYTHON` (default: the lab venv), which needs `unitree_sdk2py`.
 
 **Arming moves the robot**, so it needs an `--arm-*` flag and
 `--robot-is-clear`. `--arm-from-measured` arms to the pose the robot already
@@ -197,18 +203,21 @@ tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.
 - **Clients import the *installed* client**, so rebuild after every Python change.
 - **Moving a package leaves colcon's cache pointing at the old path.**
   `tools/build.sh --clean <pkg>`.
-- **`start_control` answers `success: true` on a wrong length** (false only
-  while an e-stop is latched). A `default_position` that
-  is not exactly 29 long is not rejected: the bridge moves all 29 joints to
-  `ready_q_` instead, legs included. Check the length yourself.
+- **`start_control` with an empty `default_position` arms to `ready_q_`**, legs
+  included. Any length other than 29 is refused, and nothing moves.
+- **G1: no arming without the remote.** `estop.require_remote` refuses every
+  arming service until the remote's header arrives: switch the remote on.
 - **The first `/robot_cmd` cuts the arming ramp short.** `controlStarted_` is
-  set before the 2 s ramp, so a client already streaming steps straight to its
-  own target. Arm before the client streams.
+  set before the 2 s ramp, so a client already streaming jumps to its own
+  target at the gate-2 speed limit (G1: arms 3, rest 6 rad/s). Arm before the
+  client streams.
 - **Control stops 200 ms after the last command's interpolation ends**, unless
   `hold_position`. On the G1 that latches `hold` until `/estop_reset`. A chunked client must cover the gap with `duration`.
-- **An abort does not release the joints.** On G1, H1 and H1_2 `finishControl_`
-  only logs, so after an IMU trip or watchdog expiry the robot holds its last
-  pose at full kp/kd. Only T1 drops to damping.
+- **G1: a fault latches the mode `estop:` names** (damp for IMU, state loss,
+  invalid state; hold for a command timeout). A stopped bridge leaves `/lowcmd`
+  silent, and the motors go passive about 0.4 s later (`docs/estop.md`, G0).
+- **H1, H1_2: an abort does not release the joints.** `finishControl_` only
+  logs, so the robot holds its last pose at full kp/kd. Only T1 drops to damping.
 - **`kp = 0` makes the torque clamp a no-op for that joint** (`upper_limbs_kp_min: 0.0`).
 - **`robot_bridge/package.xml` depends on `booster_interface` unconditionally**,
   so it builds even with T1 off.

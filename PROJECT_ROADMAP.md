@@ -3,7 +3,7 @@
 > One per repo. Planned work only, one item per task. Finished items are
 > deleted; git history is the log.
 
-_Last updated: 2026-10-19 · adminsairol-MS-7E06_
+_Last updated: 2026-10-20 · adminsairol-MS-7E06_
 
 ## Items
 
@@ -23,7 +23,9 @@ left needs hardware:
 
 - [ ] Confirm the Dex3 read order against hardware once the hands are mounted:
   bend one left-hand finger and watch which side and which motor index answers.
-  `dex3_probe --iface <if>` read mode is what answers it.
+  `dex3_probe --iface <if>` read mode is what answers it. Also bend the right
+  index finger: Unitree's enum (psi0 teleop) puts right index before middle on
+  motors 3–6, our config and `DEX3_ORDER` put middle first.
   **Done when:** `g1_stack/robot.py`'s UNCONFIRMED note on hand order is gone
   or corrected, and `hand_from_pose` is checked against a real hand.
 - [ ] Decide whether the bridge should republish hand state as a
@@ -40,9 +42,17 @@ Built and fake-tested on `g1-web-interface` (`docs/robot_console.md`).
   **Done when:** each works on the G1 in the gantry, and the camera panel shows the Jetson preview.
 - The lab's process file and its checks live in humanoid-locoman-vla (`benches/g1/console.yaml`, branch `feat-robot-console`, its roadmap "Run the G1 from the robot console").
 
+### psi0 gates
+
+Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
+
+- [ ] Leg speed limit: measure GEAR's leg target speeds in the MuJoCo rehearsal; `q_rate_limit_default` is 6.0 until then.
+  **Done when:** the default is set from the measured max plus margin.
+- [ ] IMU trip: measure the standing tilt under GEAR and psi0 in the rehearsal, then lower `imu_rpy_threshold` from 1.0 to about 0.5.
+  **Done when:** the new value is in `G1_config.yaml` and G6-IMU passes on the gantry with it.
+
 ### Upstream fixes — one branch each
 
-- [ ] `fix/start-control-validate`: `startControlServiceCB_` answers `success: true` with an "invalid size" message unconditionally, then `initControl_` moves to `ready_q_` on a wrong length. **Done when:** a wrong length is rejected, the answer is false, and nothing moves.
 - [ ] `fix/g1-default-pos-29`: G1 `_default_pos` is 27 long while kp/kd are 29 (`robot_client.py`). **Done when:** all three are 29 and a length check fails loudly.
 - [ ] `fix/config-keymaps`: the stale keymap headers are corrected here (G1 and H1_2 advertised four keys the source comments out; T1 omitted `RT` from the start combo; H1 was right). Still to send upstream. **Done when:** the PR is open.
 - [ ] `feat/g1-finish-control-release`: e-stop latch built on `g1-web-interface` (`docs/estop.md`), fake-tested only. **Done when:** gantry tests G0–G6 in `docs/estop.md` pass and the branch is merged.

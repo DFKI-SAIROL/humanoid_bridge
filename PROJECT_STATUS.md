@@ -45,6 +45,8 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-10-19: console access is a token file plus an HttpOnly cookie, bound to the lab-LAN address, never `0.0.0.0`; the web e-stop is a convenience, the remote stays primary — same doc
 - 2026-10-19: the console's children die with it (`setpriv --pdeathsig`, spawned from one long-lived thread) and Arm is refused while a `commands_robot` process or a jog streams — same doc
 - 2026-10-19: G1 remote keys come from `/lowstate.wireless_remote`, not `/wirelesscontroller`, which sends nothing in debug mode; e-stop combos `L1+R1` damp, `R1+R2` hold — same doc
+- 2026-10-20: the bridge holds one robot envelope for every model (range clamp, speed limit, gains, speed trip); model-specific shaping lives in each model's adapter node — `docs/psi0_gates.md`
+- 2026-10-20: G1 arming needs the remote's header; a latch goes silent 1.2 s after `/lowstate` stops, so a restarted robot gets no old frames — `docs/estop.md`
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 
 ## Roadmap
@@ -55,3 +57,5 @@ Planned work lives in `PROJECT_ROADMAP.md`; this file keeps only the pointer.
 
 - Does `robot_stacks/g1/` stay in this repo or become its own? DFKI's call, deferred.
 - Dex3 left/right read order: which half of the 14-vector is which hand, and which motor index is which finger. Hands are not mounted; verifiable against the fake only. `dex3_probe` read mode answers it.
+- Remote lost while the G1 is armed: damp, hold, or only a warning? — `docs/estop.md`
+- Self-collision: no gate; the joint ranges let an arm reach the head — `docs/psi0_gates.md`
