@@ -16,6 +16,7 @@
 
 - **E-stop (task 1):** done. Gantry passes G0–G6 except G6-IMU (`docs/estop.md`).
 - **Robot console (task 3):** built (`docs/robot_console.md`). Today's fixes: smoother jog (slew at max speed 0.2/0.5/1.0 rad/s, 50 Hz) and a slider with measured/sent markers (`55136a0`). The author is testing it on the robot; results are not recorded yet. Lab file: humanoid-locoman-vla `benches/g1/console.yaml`, branch `feat-robot-console`.
+- **Console 3D model (uncommitted, 2026-10-20):** default is now mjlab's G1 (`6fc2a60`, 7-capsule feet), converted by `scripts/mjcf_to_urdf.py`; the 3D view's corner tag shows the `SOURCE`. The lab `console.yaml` points at `g1_mjlab/g1.urdf` (uncommitted in humanoid-locoman-vla). The running console needs `colcon build --packages-select robot_console` in `~/bridge_ws_estop` and a restart.
 - **psi0 gates (task 2):** design and findings in `docs/psi0_gates.md`. The author said to close the clamping (gates 1, 2, 4). WIP `ef366d2`: pure `gates.hpp/.cpp` and 8 passing gtests, **not called from the bridge yet**.
 - **Robot:** in the gantry, debug mode, on `enp4s0`. The bridge runs from `~/bridge_ws_estop` in tmux `g1-bridge`. The console may still run in tmux `robot-console`.
 
@@ -30,15 +31,11 @@
    - Gantry: repeat the mid-motion elbow step. Tell the author before rebuilding `~/bridge_ws_estop`.
 2. **Ask the author decisions 2–4** in `docs/psi0_gates.md`: scope of gates 3, 5, 6, 7, 9; the brake profile; `robot_client.py`'s `L1`/`R1` mappings.
 3. **Arm only with the remote connected** (author's request): first record `/lowstate.wireless_remote` with the remote off (read-only, robot latched or disarmed). Then design: the bridge refuses to arm without the remote; decide whether to damp when it is lost while armed. Get approval before C++.
-4. **Console on the robot:** record the author's test results; then the roadmap "Robot console" checks. Start it in a foreground tmux pane:
+4. **Console on the robot:** record the author's test results; then the roadmap "Robot console" checks. Start it in a foreground tmux pane (`--config` until `feat-robot-console` merges):
    ```bash
-   set +u; source /opt/ros/humble/setup.bash
-   BRIDGE_IFACE=enp4s0 source ~/bridge_ws_estop/src/humanoid_bridge/scripts/setup_unitree.sh
-   export BRIDGE_CLONE=~/bridge_ws_estop/src/humanoid_bridge LAB_STORE=~/psi-home
-   export ROBOT_CONSOLE_CONFIG_DIR=~/github/humanoid-locoman-vla/benches/g1
-   ros2 run robot_console robot_console --host 192.168.1.21 \
-     --config ~/git/worktrees/humanoid-locoman-vla/feat-robot-console/benches/g1/console.yaml
+   tools/g1-console.sh --config ~/git/worktrees/humanoid-locoman-vla/feat-robot-console/benches/g1/console.yaml
    ```
+   On 2026-10-20 it refused: two `G1_bridge` run (orphan pid 947798 from 10-19 17:22, parent `systemd --user`), and the bridge source (`gates.cpp`) is newer than the `~/bridge_ws_estop` binary.
 5. **Gantry, with an operator:** G6-IMU (`imu_rpy_threshold: 0.05`, tilt -> damp).
 
 ## Blockers
