@@ -136,7 +136,13 @@ fi
 
 # --- running G1_bridge --------------------------------------------------------
 say "running G1_bridge"
-mapfile -t pids < <(pgrep -x G1_bridge || true)
+# Only this network namespace: a test's bridge in its own namespace cannot reach the robot.
+MY_NETNS="$(readlink /proc/self/ns/net)"
+pids=(); others=()
+for p in $(pgrep -x G1_bridge || true); do
+    if [ "$(readlink "/proc/$p/ns/net" 2>/dev/null)" = "$MY_NETNS" ]; then pids+=("$p"); else others+=("$p"); fi
+done
+[ "${#others[@]}" -gt 0 ] && echo "   note  ignored, in another network namespace: ${others[*]}"
 DUPLICATE=0
 if [ "${#pids[@]}" -eq 0 ]; then
     warn "none runs. Start it: tools/g1-bringup.sh"
