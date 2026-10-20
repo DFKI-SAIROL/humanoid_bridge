@@ -10,44 +10,63 @@
 - **Repo:** humanoid_bridge
 - **Branch:** `g1-web-interface` (worktree dir still `g1-estop-safety`; see Gotchas)
 - **Worktree:** /home/lukasm/git/worktrees/humanoid_bridge/g1-estop-safety
-- **Last updated:** 2026-10-19 · local (adminsairol-MS-7E06)
+- **Last updated:** 2026-10-20 · local (adminsairol-MS-7E06)
 
 ## State
 
-- **E-stop (task 1):** done. Gantry passes G0–G6 except G6-IMU (`docs/estop.md`).
-- **Robot console (task 3):** built (`docs/robot_console.md`). Today's fixes: smoother jog (slew at max speed 0.2/0.5/1.0 rad/s, 50 Hz) and a slider with measured/sent markers (`55136a0`). The author is testing it on the robot; results are not recorded yet. Lab file: humanoid-locoman-vla `benches/g1/console.yaml`, branch `feat-robot-console`.
-- **Console 3D model (uncommitted, 2026-10-20):** default is now mjlab's G1 (`6fc2a60`, 7-capsule feet), converted by `scripts/mjcf_to_urdf.py`; the 3D view's corner tag shows the `SOURCE`. The lab `console.yaml` points at `g1_mjlab/g1.urdf` (uncommitted in humanoid-locoman-vla). The running console needs `colcon build --packages-select robot_console` in `~/bridge_ws_estop` and a restart.
-- **psi0 gates (task 2):** design and findings in `docs/psi0_gates.md`. The author said to close the clamping (gates 1, 2, 4). WIP `ef366d2`: pure `gates.hpp/.cpp` and 8 passing gtests, **not called from the bridge yet**.
-- **Robot:** in the gantry, debug mode, on `enp4s0`. The bridge runs from `~/bridge_ws_estop` in tmux `g1-bridge`. The console may still run in tmux `robot-console`.
+- **psi0 gates (task 2):** decided with the author and built (`docs/psi0_gates.md`): gates 1, 2, 4, 5, 6, 9, client default order 1, `L1`/`R1` client mappings gone. Unit and fake tests pass. Built in `~/bridge_ws_gates` only.
+- **Remote:** arming needs the remote's header (`estop.require_remote`); console pill `remote` / `no remote`. Remote lost while armed: open question (`PROJECT_STATUS.md`).
+- **Latch after state loss:** silent 1.2 s after `/lowstate` stops (`docs/estop.md`).
+- **Review fixes:** arming refused while another `/lowcmd` publisher runs; `start_control` values over 0.1 rad outside the range refused; a `/robot_cmd` with `interpolation_order` outside [0, 1] is dropped (it ended the bridge before); fake test scripts pin DDS to loopback; the release retries 5 times.
+- **Bridge exit hang fixed:** with the NIC down, Cyclone's `dds_delete` never returned; `g1_node.cpp` ends the process 3 s after "G1 Bridge stopped.".
+- **`tools/g1-bringup.sh`:** sources the environment itself, releases with the lab venv, refuses two bridges, `--stop` (SIGKILL fallback).
+- **`tools/g1-console.sh`:** new check "G1 limits vs URDF" (`tools/check-g1-limits.py`).
+- **Robot:** in the gantry. The bridge on the robot still runs the old binary from `~/bridge_ws_estop`, or nothing.
 
-## Next action (tomorrow, in order)
+## Next action: the author's acceptance test (robot in the gantry)
 
-1. **Finish gates 1, 2, 4** (build in `~/bridge_ws_gates`):
-   - `BridgeCore::loadParameters_`: optional `<joint>.q_rate_limit`, default `q_rate_limit_default` (absent: 0 = off, warn).
-   - `G1Bridge::publishLowCommand_`: after the interpolation, `cmd.q = gates::limitTarget(cmd.q, last_cmd.q, joint_info, controlDt_)`; replace the inline window with `gates::torqueWindow(...)`.
-   - `G1Bridge::initControl_`: seed `lastCommand_.q` with the measured q under `mutex_`, **before** `calculateInterpolationParams_(0.0, …)`. Without it, the first arm after boot pulls every joint toward 0.
-   - `G1_config.yaml`: `q_rate_limit_default: 6.0`; `q_rate_limit: 3.0` on the 14 arm joints. Confirm these values with the author (decision 1).
-   - Fake wire stage `gates`: a 1.7 rad step ramps at <= 3 rad/s; an out-of-range target stops at the limit; the first arm after boot does not move toward 0 (add `fake_g1.py --start-q`). `tools/test.sh --cpp` also runs `test_gates`.
-   - Gantry: repeat the mid-motion elbow step. Tell the author before rebuilding `~/bridge_ws_estop`.
-2. **Ask the author decisions 2–4** in `docs/psi0_gates.md`: scope of gates 3, 5, 6, 7, 9; the brake profile; `robot_client.py`'s `L1`/`R1` mappings.
-3. **Arm only with the remote connected** (author's request): first record `/lowstate.wireless_remote` with the remote off (read-only, robot latched or disarmed). Then design: the bridge refuses to arm without the remote; decide whether to damp when it is lost while armed. Get approval before C++.
-4. **Console on the robot:** record the author's test results; then the roadmap "Robot console" checks. Start it in a foreground tmux pane (`--config` until `feat-robot-console` merges):
-   ```bash
-   tools/g1-console.sh --config ~/git/worktrees/humanoid-locoman-vla/feat-robot-console/benches/g1/console.yaml
-   ```
-   On 2026-10-20 it refused: two `G1_bridge` run (orphan pid 947798 from 10-19 17:22, parent `systemd --user`), and the bridge source (`gates.cpp`) is newer than the `~/bridge_ws_estop` binary.
-5. **Gantry, with an operator:** G6-IMU (`imu_rpy_threshold: 0.05`, tilt -> damp).
+Setup (all from the gates workspace, not `~/bridge_ws_estop`):
+```bash
+B=~/bridge_ws_gates/src/humanoid_bridge/tools
+$B/g1-bringup.sh --stop
+$B/g1-bringup.sh --workspace ~/bridge_ws_gates --iface enp4s0
+# tmux pane robot-console:
+$B/g1-console.sh --workspace ~/bridge_ws_gates \
+  --config ~/git/worktrees/humanoid-locoman-vla/feat-robot-console/benches/g1/console.yaml
+# for ros2 / g1-step-test.py in another pane:
+set +u; source /opt/ros/humble/setup.bash; BRIDGE_IFACE=enp4s0 source ~/bridge_ws_gates/src/humanoid_bridge/scripts/setup_unitree.sh
+```
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | read the console start output | `G1 limits vs URDF` ok |
+| 2 | remote off, click Arm | refused "remote not connected"; pill `no remote` |
+| 2b | after a robot restart, before the release: Arm | refused "other /lowcmd publisher" |
+| 3 | remote on, Arm at measured pose | pill `remote`; armed, nothing moves |
+| 4 | `ros2 service call /start_control bridge_interface/srv/SetDefaultPosition "{default_position: [0.0, 0.0]}"` | `success: false`, nothing moves |
+| 5 | armed, no jog: `$B/g1-step-test.py --joint R_ELBOW --delta 0.5` | elbow ramps, no snap; both lines PASS (<= 3 rad/s) |
+| 6 | console DAMP, HOLD; remote `L1+R1`, `R1+R2`; RESET | as on 10-19 |
+| 7 | armed, pull the Ethernet cable 5 s, plug it in | bridge log `No /lowstate for 1.2 s: … silent`; robot stays passive after the cable is back; RESET -> `DISARMED` |
+| 8 | `$B/g1-bringup.sh --stop` | `stopped`, no SIGKILL line |
+
+After it passes: switch the robot's bridge to the new build (rebuild `~/bridge_ws_estop`, tell the author first, or keep `--workspace ~/bridge_ws_gates`), then G6-IMU (`imu_rpy_threshold: 0.05`, tilt -> damp).
+
+## Also open
+
+- The feat-g1-rollout session (humanoid-locoman-vla) is told: psi0's 0.12 rad leash goes into `psi0_bridge_loop`. Check that it lands there.
+- humanoid-locoman-vla `feat-robot-console`: `benches/g1/console.yaml` has an uncommitted change (urdf -> `g1_mjlab/g1.urdf`) from the other session.
 
 ## Blockers
 
-None. Decisions 1–4 in `docs/psi0_gates.md` wait for the author.
+None.
 
 ## Gotchas (unpromoted)
 
-- The robot's bridge runs from `~/bridge_ws_estop`: rebuild only `robot_console` there (`colcon build --packages-select robot_console`); bridge changes go to `~/bridge_ws_gates`.
+- The robot's bridge runs from `~/bridge_ws_estop`: rebuild only `robot_console` there; bridge changes go to `~/bridge_ws_gates`.
 - Run `tools/test.sh` with the robot cabled only in a namespace with no NIC:
   `unshare -rn bash -c 'ip link set lo up multicast on; ip route add 224.0.0.0/4 dev lo; set +u; source /opt/ros/humble/setup.bash; source <ws>/install/setup.bash; tools/test.sh --rmw cyclonedds'`.
-- `ros2 topic` on the robot's topics needs a workspace sourced, or the message type is invalid.
-- `tools/build.sh --workspace <ws>`: the clone is reached through a symlink, so workspace detection fails without it.
-- Start `robot_console` in a foreground tmux pane: as a script's background job SIGINT is ignored, and processes stop only after the INT grace.
+- `ros2 topic` on the robot's topics: source `setup_unitree.sh` too, and use `--no-daemon` after a link drop (a stale daemon reports 0 publishers).
+- `BRIDGE_IFACE=x source …` does not export it: pass `--iface` to scripts.
+- After a robot boot the camera can send empty frames (`/health` ok, frame 503): restart `video_hub_pc4` with the SDK's `RobotStateClient.ServiceSwitch` (off, 3 s, on).
+- Start `robot_console` in a foreground tmux pane: as a script's background job SIGINT is ignored.
 - Rename the worktree dir when no session runs in it: `git -C ~/github/humanoid_bridge worktree move ~/git/worktrees/humanoid_bridge/g1-estop-safety ~/git/worktrees/humanoid_bridge/g1-web-interface`, then re-point `~/bridge_ws_estop/src/humanoid_bridge` and `~/bridge_ws_gates/src/humanoid_bridge`.

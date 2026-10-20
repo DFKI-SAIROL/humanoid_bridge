@@ -1,9 +1,13 @@
 #include "common/motor_crc.h"
 
+#include <cstring>
+
 
 void get_crc(unitree_go::msg::LowCmd& msg)
 {
-    LowCmd raw{};
+    // memset, not `raw{}`: the robot's CRC covers the padding bytes as 0.
+    LowCmd raw;
+    std::memset(static_cast<void *>(&raw), 0, sizeof(raw));
     memcpy(&raw.head[0], &msg.head[0], 2);
 
     raw.levelFlag=msg.level_flag;
@@ -39,7 +43,10 @@ void get_crc(unitree_go::msg::LowCmd& msg)
 
 	raw.reserve=msg.reserve;
 
-    raw.crc=crc32_core((uint32_t *)&raw, (sizeof(LowCmd)>>2)-1);
+    // memcpy, not a uint32_t* cast: the cast breaks strict aliasing at -O2/-O3.
+    uint32_t words[sizeof(LowCmd) / 4];
+    std::memcpy(words, &raw, sizeof(words));
+    raw.crc=crc32_core(words, (sizeof(LowCmd)>>2)-1);
     msg.crc=raw.crc;
 
     

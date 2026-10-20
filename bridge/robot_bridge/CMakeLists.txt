@@ -279,6 +279,10 @@ if(BUILD_TESTING)
   target_include_directories(test_estop PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   ament_add_gtest(test_gates tests/test_gates.cpp src/gates.cpp)
   target_include_directories(test_gates PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  # The /lowcmd CRC against Unitree's SDK; run it in the build type the robot gets.
+  ament_add_gtest(test_crc tests/test_crc.cpp src/common/motor_crc_hg.cpp)
+  target_include_directories(test_crc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/common)
+  ament_target_dependencies(test_crc rclcpp unitree_hg)
 endif()
 
 ament_package()

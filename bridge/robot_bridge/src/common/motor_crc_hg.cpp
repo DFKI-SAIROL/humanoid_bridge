@@ -1,7 +1,11 @@
 #include "common/motor_crc_hg.h"
 
+#include <cstring>
+
 void get_crc(unitree_hg::msg::LowCmd &msg) {
-  LowCmd raw{};
+  // memset, not `raw{}`: the robot's CRC covers the padding bytes as 0, and `{}` leaves them unspecified.
+  LowCmd raw;
+  std::memset(static_cast<void *>(&raw), 0, sizeof(raw));
 
   raw.modePr = msg.mode_pr;
   raw.modeMachine = msg.mode_machine;
@@ -19,7 +23,11 @@ void get_crc(unitree_hg::msg::LowCmd &msg) {
 
   memcpy(&raw.reserve[0], &msg.reserve[0], 4);
 
-  raw.crc = crc32_core((uint32_t *)&raw, (sizeof(LowCmd) >> 2) - 1);
+  // memcpy, not a uint32_t* cast: the cast breaks strict aliasing, and at -O2/-O3 the CRC
+  // covered stale bytes, so the robot dropped every frame (2026-10-20, Release build).
+  uint32_t words[sizeof(LowCmd) / 4];
+  std::memcpy(words, &raw, sizeof(words));
+  raw.crc = crc32_core(words, (sizeof(LowCmd) >> 2) - 1);
   msg.crc = raw.crc;
 }
 
