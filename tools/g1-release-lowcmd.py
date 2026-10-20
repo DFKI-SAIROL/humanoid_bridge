@@ -18,6 +18,9 @@ import argparse
 import os
 import subprocess
 import sys
+import time
+
+ATTEMPTS = 5
 
 
 def _nics():
@@ -70,9 +73,17 @@ def main(argv=None):
     print(f"before: {switcher.CheckMode()}")
     if args.check:
         return 0
-    print(f"release: {switcher.ReleaseMode()}")
-    print(f"after:  {switcher.CheckMode()}")
-    return 0
+    # Unitree's own example repeats ReleaseMode until CheckMode shows no mode.
+    for _ in range(ATTEMPTS):
+        print(f"release: {switcher.ReleaseMode()}")
+        time.sleep(1.0)
+        code, mode = after = switcher.CheckMode()
+        print(f"after:  {after}")
+        if code == 0 and isinstance(mode, dict) and not mode.get("name"):
+            return 0
+    print(f"release failed after {ATTEMPTS} tries: a motion mode still holds /lowcmd. "
+          "Press L2 + R2 on the remote.", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":

@@ -3,30 +3,34 @@
 #
 #   release /lowcmd  ->  start G1_bridge  ->  wait for it  ->  arm
 #
-# Needs: a sourced ROS workspace (scripts/setup_unitree.sh), and for the
-# release step, unitree_sdk2py on the interpreter that runs it.
+# Sources ROS and the workspace's scripts/setup_unitree.sh itself. The release
+# step needs unitree_sdk2py: $UNITREE_PYTHON, default the lab venv.
 #
 # ARMING MOVES THE ROBOT. start_control ramps every one of the 29 joints, legs
 # included, to the pose you pass, over `duration` (2 s). It is off unless you
 # ask for it twice: an --arm-* flag and --robot-is-clear.
 #
-# The bridge does not check the length of default_position: a list that is not
-# exactly 29 long is accepted, answers success, and moves the robot to ready_q_
-# instead (bridge_core.cpp:549, G1_bridge.cpp:322). This script checks it.
+# The bridge refuses a default_position that is not 29 long (empty = ready_q_);
+# this script checks the length first anyway. Arming also needs the remote on.
 #
-# Safe to re-run: it starts nothing that is already running, and re-arming an
-# armed bridge is a fresh ramp, not an error.
+# Safe to re-run: with one G1_bridge already up it only arms; with two or more
+# it refuses (each writes /lowcmd). Only bridges in this network namespace
+# count: a test's bridge in its own namespace cannot reach the robot.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 
 PARAMS="$REPO/bridge/robot_bridge/params/G1_config.yaml"
-IFACE="${BRIDGE_IFACE:-}"
+IFACE="${BRIDGE_IFACE:-enp4s0}"
+WS="${BRIDGE_WS:-$HOME/bridge_ws_estop}"
+LAB_REPO="${LAB_REPO:-$HOME/github/humanoid-locoman-vla}"
+UNITREE_PYTHON="${UNITREE_PYTHON:-}"
 ARM_MODE=""          # "", "measured", or "explicit"
 ARM_VALUES=""
 ROBOT_IS_CLEAR=0
 DO_RELEASE=1
+DO_STOP=0
 DRY_RUN=0
 WAIT_SECONDS=20
 NUM_JOINT=29
@@ -38,30 +42,39 @@ Usage: tools/g1-bringup.sh [options]
 Release /lowcmd, start G1_bridge, wait for it. Arms only if told to twice.
 
 Options:
-  --iface <nic>          DDS interface for the release step (default $BRIDGE_IFACE)
+  --iface <nic>          DDS interface (default $BRIDGE_IFACE or enp4s0)
+  --workspace <ws>       colcon workspace that builds this clone (default $BRIDGE_WS or ~/bridge_ws_estop)
   --params <path>        bridge params file (default bridge/robot_bridge/params/G1_config.yaml)
   --no-release           skip the /lowcmd release (already released, or a fake robot)
   --arm-from-measured    arm to the pose the robot currently holds
   --arm-from "<29 nums>" arm to an explicit pose, length-checked here
   --robot-is-clear       required for any --arm-*. Gantry, e-stop, safety gate first
+  --stop                 stop every G1_bridge (SIGINT, then SIGKILL), start nothing
   --wait <s>             seconds to wait for the bridge (default 20)
   --dry-run              print every command, run none
   -h, --help             this text
 
-Stop:  ros2 service call /stop_control std_srvs/srv/Trigger {}
-Neither stop nor an abort releases the joints: the robot holds its last
-commanded pose at full kp/kd.
+Environment: UNITREE_PYTHON (interpreter with unitree_sdk2py; default
+$LAB_REPO/.venv38/bin/python if present, else python3), LAB_REPO
+(~/github/humanoid-locoman-vla).
+
+Stop the bridge:  tools/g1-bringup.sh --stop
+/lowcmd then goes silent, and the motors go passive about 0.4 s later
+(docs/estop.md, G0): a standing robot falls. Gantry first.
+/stop_control keeps the bridge up and holds the measured pose.
 EOF
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --iface)   IFACE="${2:?--iface needs a NIC}"; shift ;;
+        --workspace) WS="${2:?--workspace needs a path}"; shift ;;
         --params)  PARAMS="${2:?--params needs a path}"; shift ;;
         --no-release) DO_RELEASE=0 ;;
         --arm-from-measured) ARM_MODE="measured" ;;
         --arm-from) ARM_MODE="explicit"; ARM_VALUES="${2:?--arm-from needs 29 numbers}"; shift ;;
         --robot-is-clear) ROBOT_IS_CLEAR=1 ;;
+        --stop)    DO_STOP=1 ;;
         --wait)    WAIT_SECONDS="${2:?--wait needs seconds}"; shift ;;
         --dry-run) DRY_RUN=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -72,6 +85,52 @@ done
 
 say()  { printf '== %s\n' "$*"; }
 run()  { if [ "$DRY_RUN" = 1 ]; then printf '   '; printf '%q ' "$@"; printf '\n'; else "$@"; fi; }
+
+MY_NETNS="$(readlink /proc/self/ns/net)"
+robot_bridges() {   # G1_bridge pids in this network namespace
+    local p
+    for p in $(pgrep -x G1_bridge || true); do
+        if [ "$(readlink "/proc/$p/ns/net" 2>/dev/null)" = "$MY_NETNS" ]; then echo "$p"; fi
+    done
+}
+other_bridges() {   # G1_bridge pids in other namespaces (tests); they cannot reach the robot
+    local p
+    for p in $(pgrep -x G1_bridge || true); do
+        if [ "$(readlink "/proc/$p/ns/net" 2>/dev/null)" != "$MY_NETNS" ]; then echo "$p"; fi
+    done
+}
+note_others() {
+    local others
+    others="$(other_bridges | tr '\n' ' ')"
+    if [ -n "$others" ]; then echo "   note: G1_bridge in another network namespace, ignored: $others"; fi
+}
+
+# --- stop --------------------------------------------------------------------
+if [ "$DO_STOP" = 1 ]; then
+    mapfile -t pids < <(robot_bridges)
+    note_others
+    if [ "${#pids[@]}" -eq 0 ]; then say "no G1_bridge runs"; exit 0; fi
+    say "stopping G1_bridge ${pids[*]}: /lowcmd goes silent, motors passive ~0.4 s later"
+    for p in "${pids[@]}"; do
+        # The process group: `ros2 run` is a launcher, and killing it alone orphans G1_bridge.
+        run kill -INT -- "-$(ps -o pgid= -p "$p" | tr -d ' ')" || true
+    done
+    [ "$DRY_RUN" = 1 ] && exit 0
+    for _ in $(seq 1 10); do
+        [ -z "$(robot_bridges)" ] && break
+        sleep 0.5
+    done
+    # A bridge can log "G1 Bridge stopped." and still not exit: SIGKILL it.
+    mapfile -t left < <(robot_bridges)
+    if [ "${#left[@]}" -gt 0 ]; then
+        echo "   still running 5 s after SIGINT: ${left[*]} -> SIGKILL"
+        kill -9 "${left[@]}" 2>/dev/null || true
+        sleep 0.5
+    fi
+    if [ -n "$(robot_bridges)" ]; then echo "could not stop: $(robot_bridges | tr '\n' ' ')" >&2; exit 1; fi
+    echo "   stopped"
+    exit 0
+fi
 
 # --- argument checks -------------------------------------------------------
 # Before the environment checks: a safety refusal must not depend on ROS.
@@ -87,7 +146,7 @@ if [ "$ARM_MODE" = "explicit" ]; then
     set -- $ARM_VALUES
     if [ "$#" -ne "$NUM_JOINT" ]; then
         echo "--arm-from needs exactly $NUM_JOINT numbers, got $#." >&2
-        echo "The bridge would accept this, answer success, and move to ready_q_ instead." >&2
+        echo "The bridge refuses it too; an empty list arms to ready_q_." >&2
         exit 2
     fi
     for v in "$@"; do
@@ -98,64 +157,89 @@ if [ "$ARM_MODE" = "explicit" ]; then
     ARM_VALUES="$*"
 fi
 
-command -v ros2 >/dev/null || {
-    echo "ros2 not on PATH. Source the workspace first:" >&2
-    echo "    BRIDGE_IFACE=<nic> source scripts/setup_unitree.sh" >&2
-    exit 1; }
 [ -f "$PARAMS" ] || { echo "no params file at $PARAMS" >&2; exit 1; }
 
-# --- 1. release /lowcmd ----------------------------------------------------
-if [ "$DO_RELEASE" = 1 ]; then
-    say "releasing /lowcmd"
-    if [ -z "$IFACE" ]; then
-        echo "no interface for the release step: pass --iface, set BRIDGE_IFACE," >&2
-        echo "or pass --no-release if nothing else holds /lowcmd." >&2
-        exit 2
-    fi
-    run "$HERE/g1-release-lowcmd.py" --iface "$IFACE"
-else
-    say "skipping the /lowcmd release (--no-release)"
+# --- environment: ROS, CycloneDDS on $IFACE, the workspace -----------------
+WS_CLONE="$WS/src/humanoid_bridge"
+if [ "$(cd "$WS_CLONE" 2>/dev/null && pwd -P)" != "$(cd "$REPO" && pwd -P)" ]; then
+    echo "$WS_CLONE is not this clone ($REPO)." >&2
+    echo "Run the script from the clone the workspace builds, or pass --workspace." >&2
+    exit 1
 fi
+set +u
+# shellcheck disable=SC1091
+source /opt/ros/humble/setup.bash
+export BRIDGE_IFACE="$IFACE"
+# shellcheck disable=SC1091
+source "$WS_CLONE/scripts/setup_unitree.sh" >/dev/null
+set -u
+say "workspace $WS, CycloneDDS on $IFACE"
 
-# --- 2. start the bridge ---------------------------------------------------
-say "starting G1_bridge"
-BRIDGE_LOG="$(mktemp -t g1-bringup-XXXXXX.log)"
-if [ "$DRY_RUN" = 1 ]; then
-    printf '   '; printf '%q ' ros2 run robot_bridge G1_bridge --ros-args \
-        --params-file "$PARAMS"; printf '\n'
-else
-    # setsid: `ros2 run` is a launcher, so killing it orphans G1_bridge, which
-    # keeps holding /lowcmd and blocks the next run.
-    setsid ros2 run robot_bridge G1_bridge --ros-args --params-file "$PARAMS" \
-        > "$BRIDGE_LOG" 2>&1 &
-    BRIDGE_PID=$!
-    echo "   pid $BRIDGE_PID, log $BRIDGE_LOG"
-    echo "   stop it with: kill -- -$BRIDGE_PID"
+# --- 0. already running? ---------------------------------------------------
+mapfile -t running < <(robot_bridges)
+note_others
+if [ "${#running[@]}" -gt 1 ]; then
+    echo "refused: ${#running[@]} G1_bridge run (${running[*]}); each writes /lowcmd." >&2
+    echo "Stop them: $0 --stop" >&2
+    exit 1
 fi
-
-# --- 3. wait for it --------------------------------------------------------
-say "waiting for the bridge (up to ${WAIT_SECONDS}s)"
-if [ "$DRY_RUN" = 1 ]; then
-    echo "   grep 'G1 type:' in the bridge log"
+if [ "${#running[@]}" -eq 1 ]; then
+    say "G1_bridge already runs (pid ${running[0]}): no release, no second bridge"
+    echo "   restart it: $0 --stop, then run this again"
 else
-    ready=0
-    for _ in $(seq 1 "$((WAIT_SECONDS * 2))"); do
-        if grep -q "G1 type:" "$BRIDGE_LOG" 2>/dev/null; then ready=1; break; fi
-        if ! kill -0 "$BRIDGE_PID" 2>/dev/null; then break; fi
-        sleep 0.5
-    done
-    if [ "$ready" != 1 ]; then
-        echo "the bridge did not come up. Last lines:" >&2
-        tail -20 "$BRIDGE_LOG" >&2
-        echo >&2
-        echo "'Waiting for publisher on /lowstate': the robot is not publishing, or" >&2
-        echo "CycloneDDS is on the wrong NIC. Set BRIDGE_IFACE and re-source." >&2
-        echo "'Detected N publishers on /lowcmd': something still holds the topic." >&2
-        echo "Run without --no-release, or press L2 + R2 on the controller." >&2
-        exit 1
+    # --- 1. release /lowcmd ------------------------------------------------
+    if [ "$DO_RELEASE" = 1 ]; then
+        if [ -z "$UNITREE_PYTHON" ]; then
+            UNITREE_PYTHON=python3
+            [ -x "$LAB_REPO/.venv38/bin/python" ] && UNITREE_PYTHON="$LAB_REPO/.venv38/bin/python"
+        fi
+        say "releasing /lowcmd ($UNITREE_PYTHON)"
+        # env -u PYTHONPATH: ROS's Python 3.10 paths break another interpreter's imports.
+        run env -u PYTHONPATH "$UNITREE_PYTHON" "$HERE/g1-release-lowcmd.py" --iface "$IFACE"
+    else
+        say "skipping the /lowcmd release (--no-release)"
     fi
-    echo "   up"
-    echo "   e-stop: L1+R1 damp, R1+R2 hold (latched); clear with: ros2 service call /estop_reset std_srvs/srv/Trigger"
+
+    # --- 2. start the bridge -----------------------------------------------
+    say "starting G1_bridge"
+    BRIDGE_LOG="$(mktemp -t g1-bringup-XXXXXX.log)"
+    if [ "$DRY_RUN" = 1 ]; then
+        printf '   '; printf '%q ' ros2 run robot_bridge G1_bridge --ros-args \
+            --params-file "$PARAMS"; printf '\n'
+    else
+        # setsid: `ros2 run` is a launcher, so killing it orphans G1_bridge, which
+        # keeps holding /lowcmd and blocks the next run.
+        setsid ros2 run robot_bridge G1_bridge --ros-args --params-file "$PARAMS" \
+            > "$BRIDGE_LOG" 2>&1 &
+        BRIDGE_PID=$!
+        echo "   pid $BRIDGE_PID, log $BRIDGE_LOG"
+        echo "   stop it with: $0 --stop"
+    fi
+
+    # --- 3. wait for it ----------------------------------------------------
+    say "waiting for the bridge (up to ${WAIT_SECONDS}s)"
+    if [ "$DRY_RUN" = 1 ]; then
+        echo "   grep 'G1 type:' in the bridge log"
+    else
+        ready=0
+        for _ in $(seq 1 "$((WAIT_SECONDS * 2))"); do
+            if grep -q "G1 type:" "$BRIDGE_LOG" 2>/dev/null; then ready=1; break; fi
+            if ! kill -0 "$BRIDGE_PID" 2>/dev/null; then break; fi
+            sleep 0.5
+        done
+        if [ "$ready" != 1 ]; then
+            echo "the bridge did not come up. Last lines:" >&2
+            tail -20 "$BRIDGE_LOG" >&2
+            echo >&2
+            echo "'Waiting for publisher on /lowstate': the robot is not publishing, or" >&2
+            echo "CycloneDDS is on the wrong NIC: pass --iface." >&2
+            echo "'Detected N publishers on /lowcmd': something still holds the topic." >&2
+            echo "Run without --no-release, or press L2 + R2 on the controller." >&2
+            exit 1
+        fi
+        echo "   up"
+        echo "   e-stop: L1+R1 damp, R1+R2 hold (latched); clear with: ros2 service call /estop_reset std_srvs/srv/Trigger"
+    fi
 fi
 
 # --- 4. arm ----------------------------------------------------------------
@@ -187,6 +271,5 @@ else
 fi
 
 echo
-echo "start_control answers success=false only while an e-stop is latched, and"
-echo "success=true for a wrong length, so check the ramp in /lowcmd rather than the"
-echo "reply. The first /robot_cmd cuts the ramp short, so arm before a client streams."
+echo "success=false: latched (/estop_reset), the remote is off, or a wrong length."
+echo "The first /robot_cmd cuts the ramp short, so arm before a client streams."

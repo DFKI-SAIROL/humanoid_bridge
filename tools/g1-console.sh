@@ -6,6 +6,8 @@
 #   G1_bridge build       a bridge source file is newer than the binary
 #   running G1_bridge     started before its binary was built, from another
 #                         workspace, or more than one (always refused)
+#   G1 limits vs URDF     G1_config.yaml joint limits differ from the console's
+#                         URDF or unitree's g1_29dof_with_hand.urdf
 #   Jetson ~/g1_camera    a file differs from robot_stacks/g1/g1_camera
 #
 # Run it in a foreground tmux pane: it execs the console, so Ctrl-C reaches it.
@@ -159,6 +161,33 @@ if [ -x "$BRIDGE_BIN" ]; then
             ok "pid $p runs the current binary"
         fi
     done
+fi
+
+# --- G1 limits vs URDF ------------------------------------------------------
+say "G1 limits vs URDF"
+urdfs=("$HOME/.local/share/robot_console/g1_description/g1_29dof_with_hand.urdf")
+console_urdf="$(python3 -c 'import os, sys, yaml
+u = ((yaml.safe_load(open(sys.argv[1])) or {}).get("console") or {}).get("urdf")
+base = os.path.dirname(os.path.abspath(sys.argv[1]))
+print(os.path.join(base, os.path.expanduser(os.path.expandvars(u))) if u else "")' "$CONFIG")"
+[ -n "$console_urdf" ] && urdfs=("$console_urdf" "${urdfs[@]}")
+limit_args=()
+for u in "${urdfs[@]}"; do
+    case "$u" in *g1_mjlab*) model=mjlab ;; *) model=unitree ;; esac
+    if [ -f "$u" ]; then
+        limit_args+=(--urdf "$u")
+    else
+        warn "$u missing (bridge/robot_console/scripts/fetch_assets.sh --model $model)"
+    fi
+done
+if [ "${#limit_args[@]}" -gt 0 ]; then
+    set +e; limits="$("$REPO/tools/check-g1-limits.py" "${limit_args[@]}" 2>&1)"; rc=$?; set -e
+    if [ "$rc" -eq 0 ]; then
+        printf '%s\n' "$limits" | sed 's/^ok *//' | while read -r line; do ok "$line"; done
+    else
+        fail "bridge/robot_bridge/params/G1_config.yaml limits differ from the URDF:"
+        printf '%s\n' "$limits" | sed 's/^/         /'
+    fi
 fi
 
 # --- Jetson g1_camera ---------------------------------------------------------
