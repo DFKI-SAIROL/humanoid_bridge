@@ -71,7 +71,8 @@ def run(config, rclpy, client_cls, install, loop_main, patch_channel, out=print,
         # thread at the top of run() did, so the race is real: losing it is an
         # IndexError from base_sim that reads as an unrelated upstream crash.
         wait_for_node(rclpy)
-        client = client_cls(node, num_dof=NUM_MOTORS, control_frequency=hz)
+        # GEAR's own timing: a step every tick, no extra delay.
+        client = client_cls(node, num_dof=NUM_MOTORS, control_frequency=hz, interpolation_order=0.0)
         install(client, duration=1.0 / hz)
         out(
             f"GEAR -> /robot_cmd at {hz:g} Hz, duration {1.0 / hz:.3f}s. The bridge must be "

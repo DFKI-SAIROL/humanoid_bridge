@@ -50,9 +50,9 @@ def test_header_fields_are_carried_through():
     assert cmd.hold_position is True
 
 
-def test_header_defaults_are_order_zero_not_holding():
+def test_header_defaults_are_linear_not_holding():
     cmd = pack_robot_cmd(*arrays())
-    assert cmd.interpolation_order == 0.0
+    assert cmd.interpolation_order == 1.0  # a forgotten order ramps over `duration`, not a step
     assert cmd.hold_position is False
 
 

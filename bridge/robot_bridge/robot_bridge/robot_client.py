@@ -331,8 +331,6 @@ class RobotClient:
                 "Key mapping for Unitree G1 robot:"
                 "\n- Start control: L2 + START"
                 "\n- E-stop (bridge, latched): L1 + R1 damp, R1 + R2 hold; /estop_reset"
-                "\n- Ready position: L1"
-                "\n- Zero position: R1"
             )
 
         elif self.robot_type == "H1":
@@ -403,8 +401,6 @@ class RobotClient:
                 "Key mapping for Unitree H1 robot:"
                 "\n- Start control: L2 + START"
                 "\n- Stop control: L2 + UP + LEFT"
-                "\n- Ready position: L1"
-                "\n- Zero position: R1"
             )
 
         elif self.robot_type == "H1_2":
@@ -517,8 +513,6 @@ class RobotClient:
                 "Key mapping for Unitree H1-2 robot:"
                 "\n- Start control: L2 + START"
                 "\n- Stop control: L2 + UP + LEFT"
-                "\n- Ready position: L1"
-                "\n- Zero position: R1"
             )
 
         self.low_state_subscription = self.node.create_subscription(
@@ -612,26 +606,6 @@ class RobotClient:
                 # Stop control is done in the Robot Bridge.
                 # future = self.stop_control()
                 self.control_start_time = None
-                return
-            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.L1]):
-                self.node.get_logger().info("Ready position control...")
-                if not self.control_started:
-                    self.goto_default_position()
-                    self.control_start_time = None
-                else:
-                    self.node.get_logger().warn(
-                        "Control already started, please stop the control first by pressing BACK."
-                    )
-                return
-            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.R1]):
-                self.node.get_logger().info("Zero position control...")
-                if not self.control_started:
-                    self.goto_zero_position()
-                    self.control_start_time = None
-                else:
-                    self.node.get_logger().warn(
-                        "Control already started, please stop the control first by pressing BACK."
-                    )
                 return
             else:
                 self.joy_key = buttons
@@ -786,8 +760,15 @@ class RobotClient:
         while not self.start_control_client.wait_for_service(timeout_sec=1.0):
             self.node.get_logger().info("start_control service not available, waiting again...")
 
+        positions = list(default_pos)
+        if len(positions) != self.num_dof:
+            # The bridge refuses a wrong length; an empty list arms to its ready_q.
+            self.node.get_logger().warn(
+                f"default_pos has {len(positions)} values, not {self.num_dof}: arming to the bridge's ready_q"
+            )
+            positions = []
         request = SetDefaultPosition.Request()
-        request.default_position = default_pos.tolist()
+        request.default_position = [float(v) for v in positions]
         future = self.start_control_client.call_async(request)
         return future.result()
 

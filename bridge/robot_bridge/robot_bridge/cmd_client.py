@@ -30,7 +30,7 @@ HAND_MOTOR_MODE = 0
 
 
 def pack_robot_cmd(
-    q, dq, tau, kp, kd, interpolation_order=0.0, duration=0.02, hold_position=False, mode=MOTOR_MODE
+    q, dq, tau, kp, kd, interpolation_order=1.0, duration=0.02, hold_position=False, mode=MOTOR_MODE
 ):
     """Build a RobotCmd from five equal-length per-motor arrays."""
     lengths = {len(a) for a in (q, dq, tau, kp, kd)}
@@ -97,7 +97,7 @@ class RobotCmdClient:
         node,
         num_dof,
         control_frequency,
-        interpolation_order=0.0,
+        interpolation_order=1.0,
         topic=TOPIC,
         default_pos=None,
         default_kp=None,

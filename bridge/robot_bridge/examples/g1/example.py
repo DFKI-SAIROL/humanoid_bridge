@@ -29,7 +29,7 @@ class RobotController:
         self.vx_cmd = 0.0
         self.vy_cmd = 0.0
         self.vyaw_cmd = 0.0
-        print("Please press\n\t \"L2 + START\" to start control, \n\t \"R2 + A\" to start inferrence, \n\t \"L2 + left + up\" to stop control, \n\t \"L1\" for ready position, \n\t \"R1\" for zero position.")
+        print("Please press\n\t \"L2 + START\" to start control, \n\t \"R2 + A\" to start inferrence, \n\t \"L2 + left + up\" to stop control,\n\t ready and zero position: /ready_position_control, /zero_position_control.")
 
     def step(self):
         self.check_state()

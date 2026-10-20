@@ -1,8 +1,7 @@
 # remote control:
 # start control: L2 + START
 # stop control: L2 + UP + LEFT
-# Ready position: L1
-# Zero position: R1
+# Ready / zero position: /ready_position_control, /zero_position_control
 
 robot_bridge:
   ros__parameters:

@@ -89,8 +89,8 @@ class Harness:
         self.channel = channel if channel is not None else fake_channel(self.events)
         self.loop_main = loop_main or self.default_loop
 
-    def client_cls(self, node, num_dof, control_frequency):
-        self.events.append(("client", num_dof, control_frequency))
+    def client_cls(self, node, num_dof, control_frequency, interpolation_order):
+        self.events.append(("client", num_dof, control_frequency, interpolation_order))
         return "client"
 
     def install(self, client, duration):
@@ -145,7 +145,7 @@ def test_installs_the_adapter_before_the_loop_builds_the_body():
         "destroy",
         "shutdown",
     ]
-    assert ("client", gear_controller.NUM_MOTORS, 50.0) in h.events
+    assert ("client", gear_controller.NUM_MOTORS, 50.0, 0.0) in h.events
     assert ("install", "client", pytest.approx(0.02)) in h.events
 
 
