@@ -252,6 +252,23 @@ body.no-3d .viewport-wrap { display: none; }
 
 .viewport-msg:empty { display: none; }
 
+.model-tag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.model-tag:empty { display: none; }
+
 .hovertip {
   position: absolute;
   padding: 3px 8px;

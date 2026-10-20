@@ -31,6 +31,16 @@ class Refused(Exception):
     """An action the rules forbid right now; the message says why."""
 
 
+def model_source(urdf) -> str | None:
+    """First line of the `SOURCE` file fetch_assets.sh writes beside the URDF."""
+    if urdf is None:
+        return None
+    try:
+        return (urdf.parent / "SOURCE").read_text(encoding="utf-8").splitlines()[0].strip()
+    except (OSError, IndexError):
+        return "source unknown: no SOURCE file beside the URDF"
+
+
 class ConsoleService:
     """Control lock, jog session, robot state and the queue to the ROS loop."""
 
@@ -44,6 +54,7 @@ class ConsoleService:
         clock: Callable[[], float] = time.monotonic,
     ):
         self._config = config
+        self._model = model_source(config.console.urdf)
         self._catalog = catalog
         self._session = session
         self._supervisor = supervisor
@@ -259,6 +270,7 @@ class ConsoleService:
                     "hands": console.hands,
                     "camera": console.camera is not None,
                     "urdf": None if console.urdf is None else "/assets/" + console.urdf.name,
+                    "model": self._model,
                 },
                 "bridge": {
                     "state": self._bridge_state,

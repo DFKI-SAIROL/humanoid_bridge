@@ -257,7 +257,7 @@ function onState(snap) {
   s.lastFrameAt = performance.now();
   if (!s.jogBooted) {
     s.jogBooted = true;
-    jogBoot({ client: () => s.client }, snap.robot && snap.robot.urdf);
+    jogBoot({ client: () => s.client }, snap.robot && snap.robot.urdf, snap.robot && snap.robot.model);
     if (s.tab === 'jog') jogShow();
   }
   renderSafety(snap);

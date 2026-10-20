@@ -22,7 +22,7 @@ from . import server as server_mod
 from .catalog import load_catalog
 from .config import ConfigError, load
 from .ros import PERIOD, EstopLink, RosLink
-from .service import ConsoleService
+from .service import ConsoleService, model_source
 from .session import ProbeSession
 from .supervisor import Supervisor
 
@@ -84,6 +84,8 @@ def main(argv=None):
     urdf = config.console.urdf
     if urdf is not None and not urdf.is_file():
         print(f"no URDF at {urdf}: the page falls back to the list view", file=sys.stderr)
+    elif urdf is not None:
+        print(f"3D model: {urdf.name} · {model_source(urdf)}", file=sys.stderr)
     httpd = server_mod.serve(
         service,
         token,

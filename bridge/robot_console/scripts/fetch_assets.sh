@@ -1,78 +1,52 @@
 #!/usr/bin/env bash
 # Fetches what the robot_console's 3D view needs, once per machine:
-#   three.js + urdf-loader -> $DATA/vendor          (pinned versions below)
-#   the Unitree G1 URDF + meshes -> $DATA/g1_description
+#   three.js + urdf-loader -> $DATA/vendor                  (pinned versions below)
+#   the G1 model           -> $DATA/g1_mjlab or $DATA/g1_description, plus a SOURCE file
 # Without them the page falls back to its list view.
-#   bridge/robot_console/scripts/fetch_assets.sh [--force]
+#   bridge/robot_console/scripts/fetch_assets.sh [--model mjlab|unitree] [--force]
+#
+#   mjlab    mjlab's g1.xml (29 DoF rev 1.0, rubber hands), converted to URDF (default)
+#   unitree  unitree_ros robots/g1_description (with Dex3 hands)
 #
 # Env:
 #   ROBOT_CONSOLE_DATA  destination root (default ~/.local/share/robot_console)
-#   G1_DESCRIPTION_REPO upstream remote
-#   G1_DESCRIPTION_REF  branch or tag to fetch
 
 set -euo pipefail
 
 DATA="${ROBOT_CONSOLE_DATA:-$HOME/.local/share/robot_console}"
 VENDOR="$DATA/vendor"
-DEST="$DATA/g1_description"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 THREE=0.180.0
 URDF_LOADER=0.13.1
 CDN="https://cdn.jsdelivr.net/npm"
-UPSTREAM="${G1_DESCRIPTION_REPO:-https://github.com/unitreerobotics/unitree_ros.git}"
-UPSTREAM_REF="${G1_DESCRIPTION_REF:-master}"
-SUBTREE="robots/g1_description"
 
-# Most-wanted first: the tool commands the Dex3 hands, so prefer a with-hand 29-DoF model.
-URDF_PREFERENCE=(
-    "g1_29dof_with_hand*.urdf"
-    "g1_29dof*.urdf"
-    "g1_*dof_with_hand*.urdf"
-    "g1_*.urdf"
-    "*.urdf"
-)
+MJLAB_REPO=https://github.com/mujocolab/mjlab.git
+MJLAB_SHA=6fc2a60264383732d926923a9fff30e0a3899157   # last g1.xml change, 2026-05-24
+MJLAB_DIR=src/mjlab/asset_zoo/robots/unitree_g1/xmls
+UNITREE_REPO=https://github.com/unitreerobotics/unitree_ros.git
+UNITREE_REF=master
+UNITREE_DIR=robots/g1_description
 
+MODEL=mjlab
 FORCE=0
-for arg in "$@"; do
-    case "$arg" in
+while [ $# -gt 0 ]; do
+    case "$1" in
         --force) FORCE=1 ;;
-        -h|--help)
-            sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-            exit 0
-            ;;
-        *)
-            echo "unknown argument: $arg -- expected --force or --help" >&2
-            exit 2
-            ;;
+        --model) MODEL="${2:-}"; shift ;;
+        -h|--help) sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "unknown argument: $1 -- expected --model, --force or --help" >&2; exit 2 ;;
     esac
+    shift
 done
+case "$MODEL" in
+    mjlab) DEST="$DATA/g1_mjlab" ;;
+    unitree) DEST="$DATA/g1_description" ;;
+    *) echo "--model must be mjlab or unitree, not '$MODEL'" >&2; exit 2 ;;
+esac
 
-command -v git >/dev/null 2>&1 || {
-    echo "git not found on PATH -- install git, then re-run $0" >&2
-    exit 1
-}
-
-# Pick the best URDF present under $DEST, echoing its absolute path. Empty if none.
-pick_urdf() {
-    local pattern found
-    for pattern in "${URDF_PREFERENCE[@]}"; do
-        found="$(find "$DEST" -type f -name "$pattern" -print 2>/dev/null | sort | head -n 1)"
-        if [ -n "$found" ]; then
-            echo "$found"
-            return 0
-        fi
-    done
-    return 0
-}
-
-# True when $DEST already holds a usable URDF plus at least one mesh.
-assets_present() {
-    local urdf
-    [ -d "$DEST" ] || return 1
-    urdf="$(pick_urdf)"
-    [ -n "$urdf" ] && [ -s "$urdf" ] || return 1
-    [ -n "$(find "$DEST" -type d -name meshes -print -quit 2>/dev/null)" ] || return 1
-    [ -n "$(find "$DEST" -type f \( -name '*.STL' -o -name '*.stl' -o -name '*.dae' -o -name '*.obj' \) -print -quit 2>/dev/null)" ]
-}
+for tool in git curl python3; do
+    command -v "$tool" >/dev/null 2>&1 || { echo "$tool not found on PATH" >&2; exit 1; }
+done
 
 # --- three.js + urdf-loader ------------------------------------------------
 # path under $VENDOR -> URL. three.module.js imports three.core.js; URDFLoader
@@ -87,7 +61,6 @@ VENDOR_FILES=(
     "urdf-loader/URDFLoader.js $CDN/urdf-loader@$URDF_LOADER/src/URDFLoader.js"
     "urdf-loader/URDFClasses.js $CDN/urdf-loader@$URDF_LOADER/src/URDFClasses.js"
 )
-command -v curl >/dev/null 2>&1 || { echo "curl not found on PATH" >&2; exit 1; }
 for entry in "${VENDOR_FILES[@]}"; do
     rel="${entry%% *}"
     url="${entry#* }"
@@ -102,85 +75,58 @@ for entry in "${VENDOR_FILES[@]}"; do
 done
 echo "vendor:         $VENDOR (three $THREE, urdf-loader $URDF_LOADER)"
 
-# --- G1 description ----------------------------------------------------------
-if [ "$FORCE" -eq 0 ] && assets_present; then
-    echo "g1_description already present -- skipping fetch (re-run with --force to refetch)"
-    echo "config line:    urdf: $(pick_urdf)"
+# --- G1 model ----------------------------------------------------------------
+if [ "$FORCE" -eq 0 ] && [ -s "$DEST/SOURCE" ]; then
+    echo "$DEST already present -- skipping fetch (re-run with --force to refetch)"
+    echo "model:          $(cat "$DEST/SOURCE")"
     exit 0
 fi
 
-TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/g1_description.XXXXXX")"
-cleanup() { rm -rf "$TMP_DIR"; }
-trap cleanup EXIT
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/robot_console_model.XXXXXX")"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "fetching $SUBTREE from $UPSTREAM ($UPSTREAM_REF) -- sparse checkout, no other robots"
-if ! git clone \
-    --depth 1 \
-    --filter=blob:none \
-    --sparse \
-    --branch "$UPSTREAM_REF" \
-    "$UPSTREAM" "$TMP_DIR/unitree_ros" >/dev/null 2>"$TMP_DIR/git.err"; then
-    echo "git clone failed -- no network, a proxy in the way, or a bad ref '$UPSTREAM_REF'" >&2
-    echo "  upstream: $UPSTREAM" >&2
-    sed 's/^/  git: /' "$TMP_DIR/git.err" >&2
-    exit 1
+# sparse_fetch <repo> <ref> <subdir>: checks out only <subdir> of <ref> into $TMP_DIR/repo.
+sparse_fetch() {
+    local repo="$1" ref="$2" subdir="$3" clone="$TMP_DIR/repo"
+    echo "fetching $subdir from $repo @ $ref -- sparse, depth 1"
+    git init -q "$clone"
+    git -C "$clone" remote add origin "$repo"
+    git -C "$clone" sparse-checkout set "$subdir"
+    if ! git -C "$clone" fetch -q --depth 1 --filter=blob:none origin "$ref" 2>"$TMP_DIR/git.err" \
+        || ! git -C "$clone" checkout -q FETCH_HEAD 2>>"$TMP_DIR/git.err"; then
+        echo "git fetch failed -- no network, a proxy in the way, or a bad ref '$ref'" >&2
+        sed 's/^/  git: /' "$TMP_DIR/git.err" >&2
+        exit 1
+    fi
+    [ -d "$clone/$subdir" ] || { echo "'$subdir' is not in $repo at '$ref'" >&2; exit 1; }
+}
+
+STAGE="$TMP_DIR/stage"
+mkdir -p "$STAGE"
+if [ "$MODEL" = mjlab ]; then
+    sparse_fetch "$MJLAB_REPO" "$MJLAB_SHA" "$MJLAB_DIR"
+    cp "$TMP_DIR/repo/$MJLAB_DIR/g1.xml" "$STAGE/g1.xml"
+    cp -R "$TMP_DIR/repo/$MJLAB_DIR/assets" "$STAGE/meshes"
+    python3 "$HERE/mjcf_to_urdf.py" "$STAGE/g1.xml" "$STAGE/g1.urdf" --mesh-dir meshes
+    URDF="$DEST/g1.urdf"
+    echo "mjlab @ ${MJLAB_SHA:0:7} $MJLAB_DIR/g1.xml" >"$STAGE/SOURCE"
+else
+    sparse_fetch "$UNITREE_REPO" "$UNITREE_REF" "$UNITREE_DIR"
+    cp -R "$TMP_DIR/repo/$UNITREE_DIR/." "$STAGE/"
+    URDF="$DEST/g1_29dof_with_hand.urdf"
+    echo "unitree_ros @ $(git -C "$TMP_DIR/repo" rev-parse --short FETCH_HEAD) $UNITREE_DIR" >"$STAGE/SOURCE"
 fi
 
-if ! git -C "$TMP_DIR/unitree_ros" sparse-checkout set "$SUBTREE" >/dev/null 2>"$TMP_DIR/git.err"; then
-    echo "sparse-checkout of '$SUBTREE' failed -- upstream layout may have changed" >&2
-    sed 's/^/  git: /' "$TMP_DIR/git.err" >&2
-    exit 1
-fi
+# --- verify, then install --------------------------------------------------------
+[ -s "$STAGE/$(basename "$URDF")" ] || { echo "no $(basename "$URDF") after the fetch -- upstream layout changed" >&2; exit 1; }
+MESH_COUNT="$(find "$STAGE/meshes" -type f 2>/dev/null | wc -l | tr -d ' ')"
+[ "$MESH_COUNT" -gt 0 ] || { echo "no meshes after the fetch -- LFS pointers or a partial checkout" >&2; exit 1; }
 
-SRC="$TMP_DIR/unitree_ros/$SUBTREE"
-if [ ! -d "$SRC" ]; then
-    echo "'$SUBTREE' is not in $UPSTREAM at ref '$UPSTREAM_REF' -- upstream moved it" >&2
-    echo "top-level robots/ entries found:" >&2
-    find "$TMP_DIR/unitree_ros/robots" -mindepth 1 -maxdepth 1 2>/dev/null | sort | sed 's/^/  /' >&2
-    exit 1
-fi
+rm -rf "${DEST:?}"
+mkdir -p "$(dirname "$DEST")"
+mv "$STAGE" "$DEST"
 
-if [ "$FORCE" -eq 1 ] && [ -d "$DEST" ]; then
-    echo "--force: clearing $DEST"
-    rm -rf "${DEST:?}"
-fi
-
-mkdir -p "$DEST"
-cp -R "$SRC/." "$DEST/"
-
-# --- verify concretely, do not trust the copy ------------------------------
-URDF="$(pick_urdf)"
-if [ -z "$URDF" ]; then
-    echo "fetch completed but no .urdf landed in $DEST -- upstream layout changed" >&2
-    echo "what was installed:" >&2
-    find "$DEST" -maxdepth 2 -mindepth 1 | sort | sed 's/^/  /' >&2
-    exit 1
-fi
-if [ ! -s "$URDF" ]; then
-    echo "URDF $URDF is empty -- refetch with --force" >&2
-    exit 1
-fi
-
-MESH_DIR="$(find "$DEST" -type d -name meshes -print -quit 2>/dev/null || true)"
-if [ -z "$MESH_DIR" ]; then
-    echo "no meshes/ directory under $DEST -- the model will render as empty links" >&2
-    echo "directories installed:" >&2
-    find "$DEST" -maxdepth 2 -type d -mindepth 1 | sort | sed 's/^/  /' >&2
-    exit 1
-fi
-MESH_COUNT="$(find "$MESH_DIR" -type f | wc -l | tr -d ' ')"
-if [ "$MESH_COUNT" -eq 0 ]; then
-    echo "$MESH_DIR is empty -- LFS pointers or a partial checkout; retry with --force" >&2
-    exit 1
-fi
-
-# The frontend needs the exact filename, and upstream's naming is not guaranteed,
-# so always show every URDF that shipped alongside the one we picked.
 echo
-echo "installed into: $DEST"
-echo "meshes:         $MESH_DIR ($MESH_COUNT files)"
-echo "URDF:           $URDF"
-echo
+echo "installed into: $DEST ($MESH_COUNT meshes)"
+echo "model:          $(cat "$DEST/SOURCE")"
 echo "config line:    urdf: $URDF"
-echo "all URDFs available (console.urdf may name any of these):"
-find "$DEST" -type f -name '*.urdf' | sort | sed 's/^/  /'

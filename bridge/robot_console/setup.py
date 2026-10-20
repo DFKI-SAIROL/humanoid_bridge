@@ -10,7 +10,7 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/examples", ["examples/console.yaml"]),
-        ("share/" + package_name + "/scripts", ["scripts/fetch_assets.sh"]),
+        ("share/" + package_name + "/scripts", ["scripts/fetch_assets.sh", "scripts/mjcf_to_urdf.py"]),
     ],
     # The page is served off disk, so static/ ships beside the module. vendor/ is
     # fetched to ~/.local/share/robot_console, not shipped.

@@ -226,6 +226,7 @@ def test_snapshot_shape(parts):
         "hands": True,
         "camera": False,
         "urdf": None,
+        "model": None,
     }
     assert len(snap["motors"]) == 43
     assert snap["bridge"]["lowstate_age"] is None

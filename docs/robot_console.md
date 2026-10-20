@@ -53,7 +53,7 @@ console:
   bridge_config: ${BRIDGE_CLONE}/bridge/robot_bridge/params/G1_config.yaml   # motor catalog
   lowstate: {topic: /lowstate, type: unitree_hg/msg/LowState}
   hands: true                  # Dex3 jog and hand state
-  urdf: ~/robot_assets/g1_description/g1_29dof_with_hand.urdf               # optional, 3D view
+  urdf: ~/.local/share/robot_console/g1_mjlab/g1.urdf                       # optional, 3D view
   camera: http://192.168.123.164:5557/frame.jpg                             # optional, proxied
   log_dir: ~/.local/state/robot_console
 
@@ -128,7 +128,7 @@ WebSocket holds the lock. The lock frees when that socket closes.
 | Safety bar (every view, fixed on a phone) | state, E-STOP DAMP, HOLD, RESET, control lock; `Esc` = damp |
 | Control | arm, ready, stop; `/lowstate` age, roll/pitch |
 | Processes | one card per entry: params, Start/Stop, state, missing `requires`, prompt buttons, log tail |
-| Jog | the motor probe: list, slider, limp, max speed, 3D view |
+| Jog | the motor probe: list, slider, limp, max speed, 3D view; its corner tag names the model (`SOURCE` beside the URDF) |
 | Camera | the proxied JPEG at ~5 Hz |
 
 ## Tests
@@ -142,7 +142,7 @@ WebSocket holds the lock. The lock frees when that socket closes.
 ## Run it
 
 ```bash
-bridge/robot_console/scripts/fetch_assets.sh            # once per machine: three.js + G1 model
+bridge/robot_console/scripts/fetch_assets.sh            # once per machine: three.js + mjlab G1 (--model unitree: Dex3 hands)
 ros2 run robot_console robot_console --config <file> --host <lan-ip>   # in its own tmux pane
 python3 -m robot_console.devserver                      # the page against a simulated bridge, no ROS
 ```

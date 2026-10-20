@@ -1016,10 +1016,11 @@ export function jogShow() {
   initViewer(); // async, reports its own failures, never blocks the list
 }
 
-export async function jogBoot(context, urdfUrl) {
+export async function jogBoot(context, urdfUrl, modelSource) {
   ctx = context;
   URDF_URL = urdfUrl || null;
   URDF_FILE = URDF_URL ? URDF_URL.split('/').pop() : '';
+  setText(el('model-tag'), URDF_URL ? `${URDF_FILE} · ${modelSource || 'source unknown'}` : '');
   wireControls();
 
   for (;;) {
