@@ -132,6 +132,7 @@ button, input, select { font: inherit; color: inherit; }
 .pill.is-ok { color: var(--ok); background: var(--ok-soft); border-color: currentColor; }
 .pill.is-warn { color: var(--warn); background: var(--warn-soft); border-color: currentColor; }
 .pill.is-bad { color: var(--bad); background: var(--bad-soft); border-color: currentColor; }
+.pill[hidden] { display: none; }
 
 .spacer { flex: 1 1 auto; }
 

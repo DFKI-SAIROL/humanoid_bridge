@@ -19,6 +19,21 @@ PERIOD = 1.0 / RATE
 DURATION = 2.0 * PERIOD
 
 HAND_SIDES = {LEFT_HAND: "left", RIGHT_HAND: "right"}
+# wireless_remote bytes 0-1 while the remote is connected; all 40 bytes are 0 when it is off.
+REMOTE_HEADER = (0x55, 0x51)
+
+
+def has_remote(msg_type) -> bool:
+    """Whether a lowstate type carries a `wireless_remote` field."""
+    return hasattr(msg_type, "wireless_remote")
+
+
+def remote_header(msg) -> bool:
+    """True if `msg.wireless_remote` starts with REMOTE_HEADER."""
+    remote = getattr(msg, "wireless_remote", None)
+    if remote is None or len(remote) < 2:
+        return False
+    return (int(remote[0]), int(remote[1])) == REMOTE_HEADER
 
 
 class EstopLink:
@@ -84,12 +99,9 @@ class RosLink:
         )
         self._ready_client = node.create_client(Trigger, "/ready_position_control")
 
-        node.create_subscription(
-            get_message(config.console.lowstate_type),
-            config.console.lowstate_topic,
-            self._on_lowstate,
-            1,
-        )
+        lowstate_type = get_message(config.console.lowstate_type)
+        service.set_remote_supported(has_remote(lowstate_type))
+        node.create_subscription(lowstate_type, config.console.lowstate_topic, self._on_lowstate, 1)
         latched = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -123,6 +135,8 @@ class RosLink:
         imu = getattr(msg, "imu_state", None)
         rpy = getattr(imu, "rpy", None) if imu is not None else None
         self.service.set_measured(BODY, self._read(msg.motor_state, self._num_body), rpy)
+        if remote_header(msg):
+            self.service.note_remote()
 
     def _on_hand(self, group, msg):
         self.service.set_measured(group, self._read(msg.motor_state, 7))

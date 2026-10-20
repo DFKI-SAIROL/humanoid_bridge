@@ -64,12 +64,14 @@ class FakeBridge:
 
 
 class FakeRobot:
-    """Measured q chases commanded q while a jog streams."""
+    """Measured q chases commanded q while a jog streams; `remote` is the remote's power."""
 
-    def __init__(self, service, catalog, bridge):
+    def __init__(self, service, catalog, bridge, remote=True):
         self.service = service
         self.bridge = bridge
+        self.remote = remote
         self._q = {g: [0.0] * len(catalog.group(g)) for g in catalog.groups()}
+        service.set_remote_supported(True)
 
     def step(self, dt):
         for kind, answer in self.service.pending():
@@ -91,6 +93,8 @@ class FakeRobot:
                 measured[i] += (goal - measured[i]) * blend
             state = {"q": list(measured), "dq": [0.0] * len(measured), "tau": [0.0] * len(measured)}
             self.service.set_measured(group, state, [0.0, 0.0, 0.0] if group == BODY else None)
+        if self.remote:
+            self.service.note_remote()
 
 
 def main(argv=None):

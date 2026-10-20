@@ -230,6 +230,7 @@ def test_snapshot_shape(parts):
     }
     assert len(snap["motors"]) == 43
     assert snap["bridge"]["lowstate_age"] is None
+    assert snap["bridge"]["remote"] is None, "no lowstate type with a remote reported yet"
 
 
 # --- the jog slew -------------------------------------------------------------
@@ -301,3 +302,27 @@ def test_jog_speed_choices_and_control(parts):
         service.jog_speed(client, 3.0)
     with pytest.raises(Refused):
         service.jog_speed(service.connect(), 1.0)
+
+
+# --- the remote ----------------------------------------------------------------
+
+
+def test_remote_flag_fresh_stale_and_unsupported(parts, catalog):
+    from robot_console.service import ConsoleService
+    from robot_console.session import ProbeSession
+
+    clock = Clock()
+    service = ConsoleService(parts[0]._config, catalog, ProbeSession(catalog), clock=clock)
+    remote = lambda: service.snapshot()["bridge"]["remote"]  # noqa: E731
+    assert remote() is None, "unsupported until the ROS link says otherwise"
+    service.set_remote_supported(True)
+    assert remote() is False, "supported, header never seen"
+    service.note_remote()
+    clock.now += 0.4
+    assert remote() is True
+    clock.now += 0.2
+    assert remote() is False, "header 0.6 s old"
+    service.note_remote()
+    assert remote() is True
+    service.set_remote_supported(False)
+    assert remote() is None

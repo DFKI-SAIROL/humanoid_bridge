@@ -128,7 +128,7 @@ def test_one_operator_session(stack):
         assert tab.post("/api/arm", confirm=True)[0] == 409, "no control yet"
         assert tab.post("/api/control/take")[1]["ok"] is True
         assert tab.post("/api/arm", confirm=True)[1]["ok"] is True
-        tab.wait(lambda s: s["bridge"]["state"] == "ARMED")
+        tab.wait(lambda s: s["bridge"]["state"] == "ARMED" and s["bridge"]["remote"] is True)
 
         assert tab.post("/api/jog/start")[1]["ok"] is True
         tab.wait(lambda s: s["jog"]["active"] and s["jog"]["alive"])
@@ -174,6 +174,7 @@ def test_the_page_carries_the_safety_bar(stack):
         b'id="btn-estop-damp"',
         b'id="btn-estop-hold"',
         b'id="btn-reset"',
+        b'id="pill-remote"',
         b"console.js",
     ):
         assert marker in body

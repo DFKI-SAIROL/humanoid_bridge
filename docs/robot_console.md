@@ -125,11 +125,13 @@ WebSocket holds the lock. The lock frees when that socket closes.
 
 | Panel | Content |
 |---|---|
-| Safety bar (every view, fixed on a phone) | state, E-STOP DAMP, HOLD, RESET, control lock; `Esc` = damp |
+| Safety bar (every view, fixed on a phone) | state, remote, E-STOP DAMP, HOLD, RESET, control lock; `Esc` = damp |
 | Control | arm, ready, stop; `/lowstate` age, roll/pitch |
 | Processes | one card per entry: params, Start/Stop, state, missing `requires`, prompt buttons, log tail |
 | Jog | the motor probe: list, slider, limp, max speed, 3D view; its corner tag names the model (`SOURCE` beside the URDF) |
 | Camera | the proxied JPEG at ~5 Hz |
+
+Remote pill: `remote` if a lowstate in the last 0.5 s had `wireless_remote` bytes 0-1 = `0x55 0x51`, else `no remote`; hidden if the lowstate type has no `wireless_remote`.
 
 ## Tests
 
@@ -145,7 +147,7 @@ WebSocket holds the lock. The lock frees when that socket closes.
 bridge/robot_console/scripts/fetch_assets.sh            # once per machine: three.js + mjlab G1 (--model unitree: Dex3 hands)
 ros2 run robot_console robot_console --config <file> --host <lan-ip>   # in its own tmux pane
 tools/g1-console.sh                                     # G1 lab: checks, then starts it (--help)
-tools/g1-console.sh --check                             # checks only: console build, bridge build, running bridges, Jetson g1_camera
+tools/g1-console.sh --check                             # checks only: console build, bridge build, running bridges, G1 limits vs URDF, Jetson g1_camera
 python3 -m robot_console.devserver                      # the page against a simulated bridge, no ROS
 ```
 

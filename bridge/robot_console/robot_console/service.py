@@ -25,6 +25,7 @@ JOG_SPEEDS = (0.2, 0.5, 1.0)
 DEFAULT_JOG_SPEED = 0.5
 SLEW_DT_MAX = 0.1  # a stalled loop must not turn into one big step
 REQUEST_TIMEOUT = 10.0
+REMOTE_FRESH = 0.5  # s: a remote header older than this counts as no remote
 
 
 class Refused(Exception):
@@ -72,6 +73,8 @@ class ConsoleService:
         self._measured: dict = {}
         self._lowstate_at: float | None = None
         self._rpy = None
+        self._remote_supported = False
+        self._remote_at: float | None = None
         self._jog_active = False
         self._jog_speed = DEFAULT_JOG_SPEED
         self._jog_q = None  # group -> the slewed q actually sent; None reseeds from the targets
@@ -277,6 +280,7 @@ class ConsoleService:
                     "armed": self._bridge_state == ARMED,
                     "lowstate_age": None if self._lowstate_at is None else now - self._lowstate_at,
                     "rpy": self._rpy,
+                    "remote": self._remote(now),
                 },
                 "jog": {
                     "active": self._jog_active,
@@ -319,6 +323,16 @@ class ConsoleService:
                 self._lowstate_at = self._clock()
                 if rpy is not None:
                     self._rpy = [float(v) for v in rpy]
+
+    def set_remote_supported(self, supported: bool) -> None:
+        """Whether the lowstate type carries the remote; False: the snapshot says None."""
+        with self._lock:
+            self._remote_supported = supported
+
+    def note_remote(self) -> None:
+        """A lowstate arrived with the remote's connected header."""
+        with self._lock:
+            self._remote_at = self._clock()
 
     def measured(self, group: str = BODY):
         with self._lock:
@@ -385,6 +399,12 @@ class ConsoleService:
             ok, message = False, f"the control loop did not answer within {REQUEST_TIMEOUT:.0f} s"
         self._log_result(kind, ok, message)
         return ok, message
+
+    def _remote(self, now):
+        """Lock held. True: header seen within REMOTE_FRESH; None: the type has no remote."""
+        if not self._remote_supported:
+            return None
+        return self._remote_at is not None and now - self._remote_at <= REMOTE_FRESH
 
     def _streaming(self):
         return self._supervisor.running_commands_robot() if self._supervisor else []

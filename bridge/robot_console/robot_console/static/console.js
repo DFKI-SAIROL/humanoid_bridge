@@ -287,6 +287,12 @@ function renderSafety(snap) {
   pill.className = `pill state-pill ${cls}`;
   setText(pill, text);
 
+  // null: this robot's lowstate has no remote field.
+  const remote = el('pill-remote');
+  remote.hidden = bridge.remote == null;
+  remote.className = `pill ${bridge.remote ? 'is-ok' : 'is-bad'}`;
+  setText(remote, bridge.remote ? 'remote' : 'no remote');
+
   const btn = el('btn-control');
   if (control.yours) {
     btn.className = 'pill pill-btn is-ok';
