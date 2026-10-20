@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G1 Probe Commander</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2229; --muted: #66707c; --line: #dde1e6;
+    --accent: #2563eb; --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --idle: #6b7280;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151a; --panel: #1b1f26; --text: #e6e9ee; --muted: #9aa3ae; --line: #2c323b;
+      --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --idle: #9ca3af;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0; flex: 1; }
+  .pill { padding: 4px 12px; border-radius: 999px; font-weight: 700; color: #fff; background: var(--idle); }
+  .pill.POLICY { background: var(--ok); } .pill.DAMPING { background: var(--bad); }
+  .pill.shadow { background: var(--warn); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+  .health { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+  .health div { font-variant-numeric: tabular-nums; }
+  .health b { display: block; font-size: 12px; color: var(--muted); font-weight: 600; }
+  .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+  button { font: inherit; font-weight: 700; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--panel); color: var(--text); padding: 14px; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; font-size: 18px; }
+  .ref { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+  .bar { flex: 1; height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); width: 0; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; }
+  .toolbar input { flex: 1; min-width: 160px; font: inherit; padding: 8px 10px; border-radius: 8px;
+                   border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  .group h3 { font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+  .motions { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+  .motion { text-align: left; padding: 10px; font-weight: 600; }
+  .motion small { display: block; font-weight: 400; color: var(--muted); }
+  .motion.untrained { border-style: dashed; }
+  .events { font: 12px/1.5 ui-monospace, monospace; max-height: 220px; overflow: auto; margin: 0; }
+  .events .WARN { color: var(--warn); } .events .ERROR { color: var(--bad); }
+  .hint { color: var(--muted); font-size: 13px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .tab { border: none; border-bottom: 3px solid transparent; border-radius: 0; background: none;
+         padding: 8px 16px; color: var(--muted); }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  .rec { color: var(--bad); font-weight: 700; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .actions button { padding: 8px 12px; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td a { color: var(--accent); }
+  .ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>G1 Probe Commander</h1>
+    <span id="link" class="hint"></span>
+    <span id="mode" class="pill">—</span>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="control">Control</button>
+    <button class="tab" data-tab="data">Data <span id="newCount" class="hint"></span></button>
+  </nav>
+
+  <div id="tab-control">
+  <section class="panel">
+    <div class="health" id="health"></div>
+  </section>
+
+  <section class="panel">
+    <div class="controls">
+      <button id="b-home" class="primary" data-cmd="home">1 · HOME (bridge, 2 s)</button>
+      <button id="b-go" class="primary" data-cmd="go">2 · Stand (start policy)</button>
+      <button id="b-damp" class="danger" data-cmd="e">DAMPING  [space]</button>
+      <button id="b-stop" data-cmd="stop">Stop bridge</button>
+    </div>
+    <div class="ref">
+      <span id="refname">—</span>
+      <div class="bar"><span id="refbar"></span></div>
+      <span id="reftime" class="hint"></span>
+      <span id="rec" class="rec"></span>
+    </div>
+    <div id="cmdStatus" class="hint"></div>
+  </section>
+
+  <section class="panel">
+    <div class="toolbar">
+      <strong>Probing motions</strong>
+      <input id="filter" placeholder="Filter (e.g. squat, P0, hop)">
+      <label class="hint"><input type="checkbox" id="showUntrained"> show untrained</label>
+    </div>
+    <div class="hint" id="motionHint"></div>
+    <div id="motionList"></div>
+  </section>
+
+  <section class="panel">
+    <strong>Events</strong>
+    <pre class="events" id="events"></pre>
+  </section>
+  </div>
+
+  <div id="tab-data" hidden>
+  <section class="panel">
+    <div class="toolbar">
+      <strong>Recorded data</strong>
+      <span id="dataSummary" class="hint"></span>
+    </div>
+    <div class="actions">
+      <select id="kindFilter">
+        <option value="all">runs + sessions</option>
+        <option value="run">runs (one per motion)</option>
+        <option value="session">sessions (everything)</option>
+      </select>
+      <button id="d-dl-sel">Download selected</button>
+      <button id="d-dl-new" class="primary">Download all not yet downloaded</button>
+      <button id="d-del-sel">Delete selected</button>
+      <button id="d-del-dl">Delete all downloaded</button>
+    </div>
+    <div class="hint">Downloads go to this browser's download folder. A file counts as downloaded once the
+      robot has sent it completely.</div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th><input type="checkbox" id="selAll"></th><th>File</th><th>Motion</th><th>Start</th>
+          <th>Duration</th><th>Outcome</th><th>Max tilt</th><th>Size</th><th>Downloaded</th>
+        </tr></thead>
+        <tbody id="fileRows"></tbody>
+      </table>
+    </div>
+  </section>
+  </div>
+</main>
+
+<script>
+let last = null, motionsBuilt = false, connected = true;
+const PAGE_ID = Math.random().toString(36).slice(2);
+const $ = id => document.getElementById(id);
+
+// No alert(): it would block polling. sent_ms lets the robot refuse clicks that arrive late.
+function cmdStatus(text, cls) {
+  const el = $("cmdStatus");
+  el.textContent = text; el.className = cls || "hint";
+}
+async function send(cmd) {
+  cmdStatus(`sending '${cmd}'…`);
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 2000);
+  try {
+    const r = await fetch("/api/cmd", {method: "POST", headers: {"Content-Type": "application/json"},
+                                       body: JSON.stringify({cmd, page: PAGE_ID, sent_ms: Date.now()}), signal: ctl.signal});
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) cmdStatus(`'${cmd}' delivered`, "ok");
+    else cmdStatus(`'${cmd}' NOT executed: ${d.error || r.status}`, "bad");
+  } catch (e) {
+    cmdStatus(`'${cmd}': no answer from the robot within 2 s — connection problem? Use the remote (L2+B) to stop.`, "bad");
+  } finally { clearTimeout(timer); }
+}
+
+document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => {
+  if (b.dataset.cmd === "stop" && !confirm("Stop the bridge? (damps first if the policy runs)")) return;
+  send(b.dataset.cmd);
+});
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" && e.target.tagName !== "INPUT") { e.preventDefault(); send("e"); }
+});
+$("filter").oninput = $("showUntrained").onchange = () => { motionsBuilt = false; if (last) render(last); };
+
+function fmt(x, d = 2) { return x === null || x === undefined ? "—" : Number(x).toFixed(d); }
+
+function buildMotions(s) {
+  const f = $("filter").value.trim().toLowerCase(), showU = $("showUntrained").checked;
+  const groups = {};
+  for (const m of s.motions) {
+    if (!m.trained && !showU) continue;
+    if (f && !m.id.toLowerCase().includes(f)) continue;
+    (groups[m.priority] = groups[m.priority] || []).push(m);
+  }
+  const root = $("motionList"); root.innerHTML = "";
+  for (const p of Object.keys(groups).sort()) {
+    const g = document.createElement("div"); g.className = "group";
+    g.innerHTML = `<h3>${p}</h3>`;
+    const grid = document.createElement("div"); grid.className = "motions";
+    for (const m of groups[p]) {
+      const b = document.createElement("button");
+      b.className = "motion" + (m.trained ? "" : " untrained");
+      b.dataset.motion = m.id; b.dataset.trained = m.trained;
+      b.innerHTML = `${m.id.replace(/^P\d_/, "")}<small>${m.seconds.toFixed(1)} s · sim falls ${m.falls}${m.trained ? "" : " · UNTRAINED"}</small>`;
+      b.onclick = () => send("m " + m.id);
+      grid.appendChild(b);
+    }
+    g.appendChild(grid); root.appendChild(g);
+  }
+  motionsBuilt = true;
+}
+
+function render(s) {
+  const mode = $("mode");
+  mode.textContent = s.mode + (s.shadow ? " · SHADOW" : "");
+  mode.className = "pill " + (s.shadow ? "shadow" : s.mode);
+  $("link").textContent = s.state_fresh ? "" : "no /lowstate";
+
+  const tiltCls = s.tilt > s.tilt_limit * 0.7 ? "bad" : s.tilt > s.tilt_limit * 0.4 ? "warn" : "";
+  $("health").innerHTML = `
+    <div><b>/lowstate</b><span class="${s.state_fresh ? "" : "bad"}">${s.state_fresh ? "fresh" : "STALE"}</span></div>
+    <div><b>tilt (limit ${fmt(s.tilt_limit)})</b><span class="${tiltCls}">${fmt(s.tilt, 3)} rad</span></div>
+    <div><b>max |q − HOME|</b>${fmt(s.q_home_err, 3)} rad (${s.q_home_joint})</div>
+    <div><b>max |dq|</b>${fmt(s.dq_max)} rad/s</div>
+    <div><b>max |action|</b>${fmt(s.action_max)}</div>
+    <div><b>bridge</b><span class="${s.bridge_ready ? "" : "warn"}">${s.bridge_ready ? "ready" : s.shadow ? "shadow" : "not ready (debug mode?)"}</span></div>
+    <div><b>bridge HOME</b>${s.home_ready ? "reached" : s.home_age === null ? "not sent" : "moving…"}</div>`;
+
+  $("b-home").disabled = !s.can.home;
+  $("b-go").disabled = !s.can.go;
+  $("b-damp").disabled = !s.can.damp;
+  $("b-stop").disabled = !s.can.stop;
+
+  const inMotion = s.mode === "POLICY" && s.ref_name !== "held_stand";
+  $("refname").textContent = s.mode === "IDLE" ? "policy not running" : s.ref_name + (inMotion ? "" : " (standing)");
+  $("refbar").style.width = inMotion && s.ref_rows ? (100 * s.ref_k / s.ref_rows) + "%" : "0";
+  $("reftime").textContent = inMotion ? `${fmt(s.ref_k * 0.02, 1)} / ${fmt(s.ref_rows * 0.02, 1)} s` : "";
+  $("rec").textContent = s.recording ? `● REC ${s.recording.ticks}` : "";
+  if (!s.clock_set) sendClock();
+
+  if (!motionsBuilt) buildMotions(s);
+  document.querySelectorAll(".motion").forEach(b => {
+    b.disabled = !s.can.motion || (b.dataset.trained === "false" && !s.allow_untrained);
+  });
+  $("motionHint").textContent = s.can.motion ? "" :
+    "Motions start only from Stand (policy running on the standing reference).";
+
+  $("events").innerHTML = s.events.slice().reverse()
+    .map(e => `<span class="${e.level}">${e.time} ${e.level.padEnd(5)} ${e.msg.replace(/</g, "&lt;")}</span>`).join("\n");
+}
+
+async function poll() {
+  try {
+    // Time out: a request to a rebooting robot can otherwise hang for minutes and stall polling.
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 1500);
+    const r = await fetch(`/api/status?page=${PAGE_ID}&t=${Date.now()}`, {cache: "no-store", signal: ctl.signal});
+    clearTimeout(timer);
+    last = await r.json(); render(last);
+    if (!connected) { connected = true; }
+  } catch (e) {
+    connected = false;
+    $("mode").textContent = "CLIENT OFFLINE"; $("mode").className = "pill DAMPING";
+  }
+  setTimeout(poll, 200);
+}
+poll();
+
+// ------------------------------------------------------------------ tabs + clock
+let activeTab = "control";
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  activeTab = t.dataset.tab;
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+  $("tab-control").hidden = activeTab !== "control";
+  $("tab-data").hidden = activeTab !== "data";
+  if (activeTab === "data") pollFiles();
+});
+// The robot's clock is not set; file names use this browser's clock (re-sent whenever a
+// restarted client does not have it yet, see render()).
+function sendClock() {
+  fetch("/api/clock", {method: "POST", headers: {"Content-Type": "application/json"},
+                       body: JSON.stringify({epoch_ms: Date.now(), tz_offset_min: new Date().getTimezoneOffset()})}).catch(() => {});
+}
+sendClock();
+
+// ------------------------------------------------------------------ data tab
+let files = [], selected = new Set();
+
+function mb(b) { return (b / 1e6).toFixed(b < 1e7 ? 2 : 1) + " MB"; }
+function shown() {
+  const k = $("kindFilter").value;
+  return files.filter(f => k === "all" || f.kind === k);
+}
+function download(names) {
+  if (!names.length) return;
+  const a = document.createElement("a");
+  a.href = names.length === 1 ? "/api/file/" + encodeURIComponent(names[0])
+                              : "/api/zip?names=" + encodeURIComponent(names.join(","));
+  a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(pollFiles, 1500);
+}
+async function del(names) {
+  if (!names.length) return;
+  const notDl = files.filter(f => names.includes(f.name) && !f.downloaded).length;
+  const msg = `Delete ${names.length} file(s) from the robot?` +
+    (notDl ? `\n\n${notDl} of them have NOT been downloaded and will be lost.` : "");
+  if (!confirm(msg)) return;
+  await fetch("/api/delete", {method: "POST", headers: {"Content-Type": "application/json"},
+                              body: JSON.stringify({names})});
+  names.forEach(n => selected.delete(n));
+  pollFiles();
+}
+
+$("d-dl-sel").onclick = () => download([...selected]);
+$("d-dl-new").onclick = () => download(shown().filter(f => !f.downloaded).map(f => f.name));
+$("d-del-sel").onclick = () => del([...selected]);
+$("d-del-dl").onclick = () => del(shown().filter(f => f.downloaded).map(f => f.name));
+$("kindFilter").onchange = () => renderFiles();
+$("selAll").onchange = e => {
+  shown().forEach(f => e.target.checked ? selected.add(f.name) : selected.delete(f.name));
+  renderFiles();
+};
+
+function renderFiles() {
+  const rows = shown();
+  $("fileRows").innerHTML = rows.map(f => `
+    <tr>
+      <td><input type="checkbox" data-name="${f.name}" ${selected.has(f.name) ? "checked" : ""}></td>
+      <td><a href="/api/file/${encodeURIComponent(f.name)}" download>${f.name}</a></td>
+      <td>${f.kind === "run" ? (f.motion_id || "") : "<span class='hint'>session</span>"}</td>
+      <td>${(f.start || "").replace("T", " ")}</td>
+      <td>${f.duration_s === null || f.duration_s === undefined ? "" : fmt(f.duration_s, 1) + " s"}</td>
+      <td class="${f.outcome && f.outcome !== "completed" ? "warn" : ""}">${f.outcome || ""}</td>
+      <td>${f.max_tilt === null || f.max_tilt === undefined ? "" : fmt(f.max_tilt, 3)}</td>
+      <td>${mb(f.bytes)}</td>
+      <td>${f.downloaded ? `<span class="ok">✓</span> <span class="hint">${f.downloaded.replace("T", " ")}</span>` : "—"}</td>
+    </tr>`).join("") || `<tr><td colspan="9" class="hint">No recordings yet.</td></tr>`;
+  $("fileRows").querySelectorAll("input[type=checkbox]").forEach(c => c.onchange = () => {
+    c.checked ? selected.add(c.dataset.name) : selected.delete(c.dataset.name);
+  });
+  $("selAll").checked = rows.length > 0 && rows.every(f => selected.has(f.name));
+}
+
+async function pollFiles() {
+  try {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3000);
+    const d = await (await fetch("/api/files", {cache: "no-store", signal: ctl.signal})).json();
+    clearTimeout(timer);
+    files = d.entries;
+    const names = new Set(files.map(f => f.name));
+    [...selected].forEach(n => { if (!names.has(n)) selected.delete(n); });
+    const runs = files.filter(f => f.kind === "run").length, newOnes = files.filter(f => !f.downloaded).length;
+    const total = files.reduce((a, f) => a + f.bytes, 0);
+    $("dataSummary").textContent = `${runs} runs, ${files.length - runs} sessions, ${mb(total)} · ` +
+      `${newOnes} not downloaded · ${(d.free_bytes / 1e9).toFixed(0)} GB free` +
+      (d.pending_writes ? ` · writing ${d.pending_writes}…` : "");
+    $("newCount").textContent = newOnes ? `(${newOnes} new)` : "";
+    renderFiles();
+  } catch (e) { /* status poll shows the offline state */ }
+}
+setInterval(() => { if (activeTab === "data") pollFiles(); }, 2000);
+setInterval(() => { if (activeTab !== "data") pollFiles(); }, 10000);
+pollFiles();
+</script>
+</body>
+</html>
