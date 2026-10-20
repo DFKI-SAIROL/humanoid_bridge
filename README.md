@@ -149,6 +149,7 @@ Web console (e-stop, arm, processes, jog, camera; `docs/robot_console.md`):
 ```bash
 bridge/robot_console/scripts/fetch_assets.sh                     # once: 3D view assets
 ros2 run robot_console robot_console --config <file> --host <lan-ip>
+tools/g1-console.sh            # G1 lab: version checks, then the line above with lab defaults
 ```
 
 Open the printed `http://<lan-ip>:8080/?token=...` URL once per device.

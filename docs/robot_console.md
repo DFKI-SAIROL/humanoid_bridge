@@ -11,7 +11,7 @@ Status: implemented on `g1-web-interface`; unit and fake-robot tests pass; gantr
 | | |
 |---|---|
 | Runs on | the lab PC, beside the bridge, in its own tmux session |
-| Start | `ros2 run robot_console robot_console --config <file> [--host <lan-ip>] [--port 8080]` |
+| Start | `ros2 run robot_console robot_console --config <file> [--host <lan-ip>] [--port 8080]`; G1 lab: `tools/g1-console.sh` |
 | Stack | stdlib `http.server` + RFC 6455 WebSocket, `rclpy`, PyYAML. No new deps |
 | Code base | `motor_probe` from `feat-motor-probe` (`03451f9`), without its `vendor/` |
 | Bridge | stays in tmux (`tools/g1-bringup.sh`); the console reads `/bridge_state`, calls services |
@@ -144,6 +144,8 @@ WebSocket holds the lock. The lock frees when that socket closes.
 ```bash
 bridge/robot_console/scripts/fetch_assets.sh            # once per machine: three.js + mjlab G1 (--model unitree: Dex3 hands)
 ros2 run robot_console robot_console --config <file> --host <lan-ip>   # in its own tmux pane
+tools/g1-console.sh                                     # G1 lab: checks, then starts it (--help)
+tools/g1-console.sh --check                             # checks only: console build, bridge build, running bridges, Jetson g1_camera
 python3 -m robot_console.devserver                      # the page against a simulated bridge, no ROS
 ```
 
