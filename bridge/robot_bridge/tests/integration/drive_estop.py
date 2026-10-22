@@ -12,6 +12,7 @@ import rclpy
 import yaml
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, Float32, String, UInt16
+from std_srvs.srv import Trigger
 from unitree_hg.msg import LowCmd
 
 from robot_bridge.cmd_client import RobotCmdClient, pack_robot_cmd
@@ -43,6 +44,8 @@ class Driver:
         self.params = params
         self.bridge_log = bridge_log
         self.client = RobotCmdClient(node, num_dof=NUM_MOTORS, control_frequency=50.0)
+        self.ready = node.create_client(Trigger, "/ready_position_control")
+        self.zero = node.create_client(Trigger, "/zero_position_control")
         self.keys = node.create_publisher(UInt16, "/fake_g1/keys", 10)
         self.roll = node.create_publisher(Float32, "/fake_g1/roll", 10)
         self.remote = node.create_publisher(Bool, "/fake_g1/remote", 10)
@@ -323,6 +326,30 @@ class Driver:
         self.spin(RAMP_SECONDS)
         self.check_state("ARMED again", "ARMED")
         self.check("[] ramped to ready_q", *self.at(self.params["ready_q"]))
+
+        # Ready and zero move every joint: armed, they still need the remote.
+        # Armed at 0.2 (not ready_q), so an accepted ready must move every joint.
+        self.client.stop_control()
+        self.check("start_control at 0.2", self.start(0.2).success)
+        self.spin(RAMP_SECONDS)
+        self.check("ramp reached 0.2", *self.frame(kp, kd, q=0.2))
+        self.remote.publish(Bool(data=False))
+        self.spin(1.0)
+        for name, client in (("ready", self.ready), ("zero", self.zero)):
+            reply = self.client._call(client, Trigger.Request(), 30.0)
+            self.check(
+                f"{name} refused while armed without the remote",
+                not reply.success and "remote" in reply.message,
+                reply.message,
+            )
+        self.check("refused ready/zero kept 0.2", *self.frame(kp, kd, q=0.2))
+        self.remote.publish(Bool(data=True))
+        self.spin(0.3)
+        reply = self.client._call(self.ready, Trigger.Request(), 30.0)
+        self.check("ready accepted while armed with the remote", reply.success, reply.message)
+        self.spin(RAMP_SECONDS)
+        self.check_state("ARMED after ready", "ARMED")
+        self.check("ready moved 0.2 -> ready_q", *self.at(self.params["ready_q"]))
 
         # Command timeout: hold, latched.
         self.send(0.25, hold_position=False, duration=0.1)

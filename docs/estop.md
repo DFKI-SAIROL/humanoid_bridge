@@ -30,7 +30,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 | `LATCHED(mode, cause)` | stop frame, 1 kHz (nothing if latched from `DISARMED`, or 1.2 s after `/lowstate` stopped) | dropped | **refused** | `/estop_reset` → `STOPPED`, or `DISARMED` if silent |
 
 - Arming services: `/start_control`, `/ready_position_control`, `/zero_position_control`, `/start_hand_control`.
-- `estop.require_remote: true`: every arming service is refused unless the remote's header (`0x55 0x51`) arrived in the last 0.5 s. Measured 2026-10-20: remote off = all 40 bytes 0; at rest the bytes stay constant, so only the header counts. Remote lost while armed: open question.
+- `estop.require_remote: true`: every arming service is refused unless the remote's header (`0x55 0x51`) arrived in the last 0.5 s. Measured 2026-10-20: remote off = all 40 bytes 0; at rest the bytes stay constant, so only the header counts. Remote lost while armed: open question. Ready and zero count as arming even while `ARMED`: they move every joint, so they also need the remote and a free `/lowcmd`.
 - Latched, `/lowstate` older than 1.2 s (0.2 s `state_loss` + 1 s): the latch goes silent and stays silent until reset (`LATCHED … silent`). A robot that restarts meanwhile runs its own motion service; old frames would fight it (2026-10-20).
 - G1 arming is also refused while any other program publishes `/lowcmd` (a restarted robot's motion service): release it first.
 - `/start_control`, `/ready_position_control`, `/zero_position_control` exist only after the startup waits (`/lowcmd` free, `/lowstate` up): DDS would store a call made during the wait and arm once the bridge spins.
@@ -127,7 +127,7 @@ estop:
 ## Code shape
 
 - `include/estop.hpp`, `src/estop.cpp`: no `rclcpp`. `SafetyLatch` (states, mode rules, reset rules), `buildStopFrame(...)`, `parseRemoteKeys(...)`.
-- `BridgeCore`: owns a `SafetyLatch` beside `controlStarted_` (tracking, now atomic); `enterStop_`; `armControl_` gates the arming services; each robot bridge creates the body ones with `createArmingServices_()` after its startup waits, except X2, which makes its own three there; `checkState_` returns the fault; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default.
+- `BridgeCore`: owns a `SafetyLatch` beside `controlStarted_` (tracking, now atomic); `enterStop_`; `armControl_` gates the arming services (ready/zero while `ARMED` run its remote and `/lowcmd` checks themselves); each robot bridge creates the body ones with `createArmingServices_()` after its startup waits, except X2, which makes its own three there; `checkState_` returns the fault; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default.
 - `G1Bridge`: implements `publishStopCommand_`; remote parsing in `lowStateHandler_`, which now copies state under `mutex_`; `finishControl_` stays a log line.
 - `include/joint.hpp`: `Joint` moved out of `bridge_core.hpp` so the pure code needs no ROS.
 - `RobotCmdClient`: `estop_damp()`, `estop_hold()`, `estop_reset()`.

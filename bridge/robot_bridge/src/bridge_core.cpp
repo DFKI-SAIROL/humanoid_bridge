@@ -851,7 +851,10 @@ namespace sairol_bridge
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
         std::string why;
-        if (!controlStarted_ && !armControl_(bridge_interface::msg::RobotCmd(), why))
+        // Moves every joint, so it counts as arming even while tracking.
+        const bool allowed = controlStarted_ ? remoteAllowsArming_(why) && robotAllowsArming_(why)
+                                             : armControl_(bridge_interface::msg::RobotCmd(), why);
+        if (!allowed)
         {
             RCLCPP_WARN(nh->get_logger(), "Ready position refused: %s", why.c_str());
             response->success = false;
@@ -870,7 +873,10 @@ namespace sairol_bridge
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
         std::string why;
-        if (!controlStarted_ && !armControl_(bridge_interface::msg::RobotCmd(), why))
+        // Moves every joint, so it counts as arming even while tracking.
+        const bool allowed = controlStarted_ ? remoteAllowsArming_(why) && robotAllowsArming_(why)
+                                             : armControl_(bridge_interface::msg::RobotCmd(), why);
+        if (!allowed)
         {
             RCLCPP_WARN(nh->get_logger(), "Zero position refused: %s", why.c_str());
             response->success = false;
