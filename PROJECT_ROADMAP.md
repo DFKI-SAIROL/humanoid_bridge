@@ -3,7 +3,7 @@
 > One per repo. Planned work only, one item per task. Finished items are
 > deleted; git history is the log.
 
-_Last updated: 2026-10-20 · lukas-mbp_
+_Last updated: 2026-10-22 · turing_
 
 ## Items
 
@@ -42,6 +42,11 @@ Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
   **Done when:** the default is set from the measured max plus margin.
 - [ ] IMU trip: measure the standing tilt under GEAR and psi0 in the rehearsal, then lower `imu_rpy_threshold` from 1.0 to about 0.5.
   **Done when:** the new value is in `G1_config.yaml` and G6-IMU passes on the gantry with it.
+
+### Gantry acceptance
+
+- [ ] Run the post-PR #7 acceptance test on the gantry: `docs/estop.md`, "Gantry acceptance, after PR #7". Then switch the robot's bridge to that build.
+  **Done when:** rows 1–8 pass, the results replace the table in `docs/estop.md`, and the robot runs the `main` build.
 
 ### Link loss
 
