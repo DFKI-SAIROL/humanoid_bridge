@@ -503,8 +503,7 @@ namespace sairol_bridge
             throw std::invalid_argument("Invalid interpolation order");
         }
 
-        lock.unlock();
-
+        // Still under mutex_: publishLowCommand_ reads the phase with cmdParams_, so a tick never mixes old and new.
         tStart_ = steadyClock_.now().seconds();
         tFinal_ = tStart_ + duration;
         if (hold_position)

@@ -35,6 +35,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | `cmd_client.py` and `adapters/` (GEAR WBC, GEAR hands) | upstream | added here, no PR yet |
 | Dex3 hand path: `HandCmd`, the 100 Hz loop, per-side guards | upstream | added here, no PR yet |
 | `checkMotorCmd_` using `std::abs` (upstream's bare `abs` truncated \|v\| < 1 to 0) | upstream | fixed here, behaviour change on the body path |
+| `tStart_`, `tFinal_`, `tValid_` written after the mutex is released: a tick can pair new `cmdParams_` with the old phase | upstream | fixed here, no PR yet |
 | State age and command timeout on the ROS clock: a backward wall-clock step blinds them | upstream | fixed here: one steady clock, no PR yet |
 | Config keymap headers advertising keys the source comments out | upstream | fixed here, no PR yet |
 | Config limits checked only by `assert` (gone under NDEBUG); `ready_q` length and range, joint `idx` never checked | upstream | fixed here: the load fails, no PR yet |

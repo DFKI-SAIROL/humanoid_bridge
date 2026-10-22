@@ -131,7 +131,8 @@ namespace sairol_bridge
 
         std::thread controlThread_;
         std::mutex mutex_;
-        double tStart_, tFinal_, tValid_;
+        double tStart_, tFinal_;   // guarded by mutex_
+        std::atomic<double> tValid_{0.0};   // written under mutex_; update_() reads it without
         const float_t INF_{std::numeric_limits<float>::infinity()};
 
         int numJoint_{0};
