@@ -102,6 +102,7 @@ add_executable(H1_2_bridge
   src/common/motor_crc_hg.cpp
 )
 
+  
 ament_target_dependencies(H1_2_bridge
   unitree_go
   unitree_hg
@@ -242,6 +243,42 @@ if(BUILD_BOOSTER_T1)
     TARGETS T1_bridge
     RUNTIME DESTINATION lib/${PROJECT_NAME}
   )
+endif()
+
+# ============================================================== AgiBot X2 =================================================================================
+
+option(BUILD_AGIBOT_X2 "Build AgiBot X2 bridge" OFF)
+
+if(BUILD_AGIBOT_X2)
+  find_package(aimdk_msgs REQUIRED)
+
+  add_executable(X2_bridge
+    src/bridge_core.cpp
+    src/estop.cpp
+    src/X2_bridge.cpp
+    src/x2_node.cpp
+  )
+
+  ament_target_dependencies(X2_bridge
+    rclcpp
+    std_msgs
+    sensor_msgs
+    std_srvs
+    bridge_interface
+    aimdk_msgs
+    rosidl_default_runtime
+  )
+
+  install(
+    TARGETS X2_bridge
+    RUNTIME DESTINATION lib/${PROJECT_NAME}
+  )
+
+  install(
+    FILES params/X2_config.yaml
+    DESTINATION share/${PROJECT_NAME}/params
+  )
+  
 endif()
 
 

@@ -3,9 +3,9 @@ float32 q
 float32 dq
 float32 ddq
 float32 tau_est
-# 电机温度信息：类型：int8_t ，可按照实际数值显示（范围：-100 - 150）。
+# Motor temperature: int8_t; display the reported value (documented range: -100 to 150).
 int8 temperature
-# 电机丢包信息：可按照实际数值显示（范围：0-9999999999）。
+# Motor packet loss: display the reported value (documented range: 0 to 9999999999).
 uint32 lost
-# 当前电机通信频率+电机错误标志位：（数组：0-电机错误标志位（范围：0-255，可按照实际数值显示），1-当前电机通信频率（范围：0-800，可按照实际数值显示））
+# Motor status array: index 0 is the error flags (0 to 255); index 1 is the communication frequency (0 to 800).
 uint32[2] reserve

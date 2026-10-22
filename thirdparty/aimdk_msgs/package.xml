@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>aimdk_msgs</name>
+  <version>0.0.0</version>
+  <description>Minimal AgiBot X2 joint messages for humanoid_bridge.</description>
+
+  <maintainer email="ouyangyuan@agibot.com">ouyangyuan</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+  <depend>builtin_interfaces</depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

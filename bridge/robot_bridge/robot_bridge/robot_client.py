@@ -80,6 +80,47 @@ class RemoteController:
         else:
             self.new_event = False
 
+    def set_joy(self, msg):
+        # ROS game_controller_node uses SDL's standardized button and axis order
+        if len(msg.axes) < 6 or len(msg.buttons) < 15:
+            return False
+        if not np.all(np.isfinite(msg.axes)) or np.any(np.abs(msg.axes) > 1.0):
+            return False
+        if any(button not in (0, 1) for button in msg.buttons):
+            return False
+
+        buttons = [0] * 16
+        mapping = (
+            (KeyMap.R1, 10),
+            (KeyMap.L1, 9),
+            (KeyMap.start, 6),
+            (KeyMap.select, 4),
+            (KeyMap.F1, 7),
+            (KeyMap.F2, 8),
+            (KeyMap.A, 0),
+            (KeyMap.B, 1),
+            (KeyMap.X, 2),
+            (KeyMap.Y, 3),
+            (KeyMap.up, 11),
+            (KeyMap.right, 14),
+            (KeyMap.down, 12),
+            (KeyMap.left, 13),
+        )
+        for key, index in mapping:
+            buttons[key] = msg.buttons[index]
+        # Standardized trigger axes are zero when released and negative when pressed
+        buttons[KeyMap.L2] = int(msg.axes[4] < -0.5)
+        buttons[KeyMap.R2] = int(msg.axes[5] < -0.5)
+        self.last_button = self.button
+        self.button = buttons
+        self.new_event = any(value and not self.last_button[i] for i, value in enumerate(buttons))
+        # Preserve the signs expected by the existing H1 policy example
+        self.lx, self.ly = -msg.axes[0], msg.axes[1]
+        self.rx, self.ry = -msg.axes[2], msg.axes[3]
+        if msg.buttons[5] or any(msg.buttons[15:]):
+            self.new_event = False
+        return True
+
     def is_exact_combo(self, buttons, combo_keys):
         return all(buttons[k] for k in combo_keys) and not any(
             buttons[i] for i in range(len(buttons)) if i not in combo_keys
@@ -87,7 +128,15 @@ class RemoteController:
 
 
 class RobotClient:
-    def __init__(self, node, robot_type, num_dof, control_frequency, interpolation_order=0) -> None:
+    def __init__(
+        self,
+        node,
+        robot_type,
+        num_dof,
+        control_frequency,
+        interpolation_order=0,
+        enable_joystick=False,
+    ) -> None:
         self.node: Node = node
         self.robot_type = robot_type
         self.num_dof = num_dof
@@ -514,10 +563,162 @@ class RobotClient:
                 "\n- Start control: L2 + START"
                 "\n- Stop control: L2 + UP + LEFT"
             )
+        elif self.robot_type == "X2":
+            from aimdk_msgs.msg import JointStateArray
+            from rclpy.qos import qos_profile_sensor_data
+            from sensor_msgs.msg import Imu
 
-        self.low_state_subscription = self.node.create_subscription(
-            LowState, state_topic_name, low_state_handler, 1
-        )
+            if self.num_dof not in (29, 30):
+                raise ValueError(
+                    "X2 requires 29 joints without the head or 30 joints with head yaw."
+                )
+
+            self._angular_acceleration = np.zeros(3, dtype=np.float32)
+
+            # Offline reference values; keep aligned with X2_config.yaml
+            self._default_pos = np.array(
+                [
+                    -0.05,
+                    0.0,
+                    0.0,
+                    0.1,
+                    -0.05,
+                    0.0,
+                    -0.05,
+                    0.0,
+                    0.0,
+                    0.1,
+                    -0.05,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.4,
+                    0.0,
+                    0.0,
+                    -1.2,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.4,
+                    0.0,
+                    0.0,
+                    -1.2,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ]
+            )[: self.num_dof]
+
+            self._default_kp = np.array(
+                [
+                    40.0,
+                    40.0,
+                    30.0,
+                    80.0,
+                    40.0,
+                    20.0,
+                    40.0,
+                    40.0,
+                    30.0,
+                    80.0,
+                    40.0,
+                    20.0,
+                    150.0,
+                    300.0,
+                    300.0,
+                    30.0,
+                    20.0,
+                    20.0,
+                    50.0,
+                    50.0,
+                    20.0,
+                    20.0,
+                    30.0,
+                    20.0,
+                    20.0,
+                    50.0,
+                    50.0,
+                    20.0,
+                    20.0,
+                    20.0,
+                ]
+            )[: self.num_dof]
+
+            self._default_kd = np.array(
+                [
+                    4.0,
+                    4.0,
+                    3.0,
+                    8.0,
+                    4.0,
+                    2.0,
+                    4.0,
+                    4.0,
+                    3.0,
+                    8.0,
+                    4.0,
+                    2.0,
+                    3.0,
+                    3.0,
+                    3.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                    1.0,
+                ]
+            )[: self.num_dof]
+
+            self._default_duration = 1.5
+
+            self.leg_state_subscription = self.node.create_subscription(
+                JointStateArray,
+                "/aima/hal/joint/leg/state",
+                self._leg_state_handler_x2,
+                qos_profile_sensor_data,
+            )
+            self.waist_state_subscription = self.node.create_subscription(
+                JointStateArray,
+                "/aima/hal/joint/waist/state",
+                self._waist_state_handler_x2,
+                qos_profile_sensor_data,
+            )
+            self.arm_state_subscription = self.node.create_subscription(
+                JointStateArray,
+                "/aima/hal/joint/arm/state",
+                self._arm_state_handler_x2,
+                qos_profile_sensor_data,
+            )
+            if self.num_dof == 30:
+                self.head_state_subscription = self.node.create_subscription(
+                    JointStateArray,
+                    "/aima/hal/joint/head/state",
+                    self._head_state_handler_x2,
+                    qos_profile_sensor_data,
+                )
+            self.imu_state_subscription = self.node.create_subscription(
+                Imu,
+                "/aima/hal/imu/torso/state",
+                self._imu_state_handler_x2,
+                qos_profile_sensor_data,
+            )
+
+        if self.robot_type != "X2":
+            self.low_state_subscription = self.node.create_subscription(
+                LowState, state_topic_name, low_state_handler, 1
+            )
         # self.joystick_subscription = self.node.create_subscription(JoyMsg, joy_topic_name, joy_handler, 1)
         self.low_cmd_publisher = self.node.create_publisher(RobotCmd, "/robot_cmd", 1)
 
@@ -541,6 +742,17 @@ class RobotClient:
 
         self.control_start_time = None
         self.control_started = False
+
+        if self.robot_type == "X2" and enable_joystick:
+            from rclpy.qos import qos_profile_sensor_data
+            from sensor_msgs.msg import Joy
+
+            self.remote_controller = RemoteController()
+            self._joy_future_x2 = None
+            self._joy_stop_requested_x2 = False
+            self.joystick_subscription = self.node.create_subscription(
+                Joy, "/joy", self._joy_handler_x2, qos_profile_sensor_data
+            )
 
     @property
     def q_pos(self):
@@ -609,6 +821,162 @@ class RobotClient:
                 return
             else:
                 self.joy_key = buttons
+
+    def _joy_handler_x2(self, msg):
+        if not self.remote_controller.set_joy(msg):
+            self.node.get_logger().error(
+                "Invalid X2 Joy message; use game_controller_node mapping."
+            )
+            return
+        if not self.remote_controller.new_event:
+            return
+
+        buttons = self.remote_controller.button
+        try:
+            if self.remote_controller.is_exact_combo(buttons, [KeyMap.L2, KeyMap.up, KeyMap.left]):
+                if self._joy_future_x2 is not None and not self._joy_future_x2.done():
+                    self._joy_stop_requested_x2 = True
+                    return
+                self._joy_future_x2 = self.stop_control()
+            elif self._joy_future_x2 is not None and not self._joy_future_x2.done():
+                self.node.get_logger().warn("A joystick control request is still pending.")
+                return
+            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.L2, KeyMap.start]):
+                if self.control_start_time is not None:
+                    return
+                self._joy_future_x2 = self.init_control()
+            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.L1]):
+                if self.control_start_time is not None:
+                    self.node.get_logger().warn(
+                        "Stop client control before requesting the ready position."
+                    )
+                    return
+                self._joy_future_x2 = self.goto_default_position()
+            elif self.remote_controller.is_exact_combo(buttons, [KeyMap.R1]):
+                if self.control_start_time is not None:
+                    self.node.get_logger().warn(
+                        "Stop client control before requesting the zero position."
+                    )
+                    return
+                self._joy_future_x2 = self.goto_zero_position()
+            else:
+                self.joy_key = copy(buttons)
+                return
+        except RuntimeError as error:
+            self.node.get_logger().error(str(error))
+            return
+        self._joy_future_x2.add_done_callback(self._joy_control_response_x2)
+
+    def _joy_control_response_x2(self, future):
+        if self._joy_stop_requested_x2:
+            self._joy_stop_requested_x2 = False
+            try:
+                self._joy_future_x2 = self.stop_control()
+            except RuntimeError as error:
+                self.node.get_logger().error(str(error))
+                return
+            self._joy_future_x2.add_done_callback(self._joy_control_response_x2)
+
+    def _check_joint_state_message_x2(self, msg, message_count, active_count, group_name):
+        from aimdk_msgs.msg import DomainErrorState
+
+        if len(msg.joints) != message_count:
+            self.node.get_logger().error(f"X2 {group_name} state length mismatch.")
+            return False
+        if msg.state.value != DomainErrorState.NONE:
+            self.node.get_logger().error(f"X2 {group_name} group reports state {msg.state.value}.")
+            return False
+
+        max_value = np.finfo(np.float32).max
+        for joint in msg.joints[:active_count]:
+            values = (joint.position, joint.velocity, joint.effort)
+            if (
+                joint.error_code != 0
+                or not np.all(np.isfinite(values))
+                or np.any(np.abs(values) > max_value)
+            ):
+                self.node.get_logger().error(
+                    f"X2 {group_name} joint has invalid data or error code {joint.error_code}."
+                )
+                return False
+        return True
+
+    def _leg_state_handler_x2(self, msg):
+        if not self._check_joint_state_message_x2(msg, 12, 12, "leg"):
+            return
+
+        for i, joint in enumerate(msg.joints):
+            self._q_pos[i] = joint.position
+            self._q_vel[i] = joint.velocity
+            self._tau[i] = joint.effort
+
+    def _waist_state_handler_x2(self, msg):
+        if not self._check_joint_state_message_x2(msg, 3, 3, "waist"):
+            return
+
+        for i, joint in enumerate(msg.joints):
+            self._q_pos[12 + i] = joint.position
+            self._q_vel[12 + i] = joint.velocity
+            self._tau[12 + i] = joint.effort
+
+    def _arm_state_handler_x2(self, msg):
+        if not self._check_joint_state_message_x2(msg, 14, 14, "arm"):
+            return
+
+        for i, joint in enumerate(msg.joints):
+            self._q_pos[15 + i] = joint.position
+            self._q_vel[15 + i] = joint.velocity
+            self._tau[15 + i] = joint.effort
+
+    def _head_state_handler_x2(self, msg):
+        if self.num_dof != 30:
+            return
+        if not self._check_joint_state_message_x2(msg, 2, 1, "head"):
+            return
+
+        joint = msg.joints[0]
+        self._q_pos[29] = joint.position
+        self._q_vel[29] = joint.velocity
+        self._tau[29] = joint.effort
+
+    def _imu_state_handler_x2(self, msg):
+        if (
+            msg.orientation_covariance[0] == -1.0
+            or msg.angular_velocity_covariance[0] == -1.0
+            or msg.linear_acceleration_covariance[0] == -1.0
+        ):
+            self.node.get_logger().error("X2 IMU reports unavailable measurements.")
+            return
+
+        values = np.array(
+            [
+                msg.orientation.w,
+                msg.orientation.x,
+                msg.orientation.y,
+                msg.orientation.z,
+                msg.angular_velocity.x,
+                msg.angular_velocity.y,
+                msg.angular_velocity.z,
+                msg.linear_acceleration.x,
+                msg.linear_acceleration.y,
+                msg.linear_acceleration.z,
+            ],
+            dtype=np.float64,
+        )
+        if not np.all(np.isfinite(values)) or np.any(np.abs(values) > np.finfo(np.float32).max):
+            self.node.get_logger().error("X2 IMU contains invalid values.")
+            return
+
+        norm = np.linalg.norm(values[:4])
+        if norm < 1e-12:
+            self.node.get_logger().error("X2 IMU quaternion has zero norm.")
+            return
+
+        # Keep the HAL torso frame; quaternion order: w, x, y, z
+        self._quat = (values[:4] / norm).astype(np.float32)
+        self._angular_velocity = values[4:7].astype(np.float32)
+        # Existing member stores linear acceleration
+        self._angular_acceleration = values[7:10].astype(np.float32)
 
     def update_robot_state(self):
         time_now = time.time()
@@ -757,7 +1125,11 @@ class RobotClient:
         if default_pos is None:
             default_pos = self._default_pos
 
-        while not self.start_control_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.start_control_client.service_is_ready():
+            raise RuntimeError("start_control_client service is unavailable.")
+        while self.robot_type != "X2" and not self.start_control_client.wait_for_service(
+            timeout_sec=1.0
+        ):
             self.node.get_logger().info("start_control service not available, waiting again...")
 
         positions = list(default_pos)
@@ -770,18 +1142,54 @@ class RobotClient:
         request = SetDefaultPosition.Request()
         request.default_position = [float(v) for v in positions]
         future = self.start_control_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._start_control_response_x2)
+            return future
         return future.result()
 
     def stop_control(self):
         """
         Stop the control loop by calling the stop_control service.
         """
-        while not self.stop_control_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.stop_control_client.service_is_ready():
+            raise RuntimeError("stop_control_client service is unavailable.")
+        while self.robot_type != "X2" and not self.stop_control_client.wait_for_service(
+            timeout_sec=1.0
+        ):
             self.node.get_logger().info("stop_control service not available, waiting again...")
 
         request = Trigger.Request()
         future = self.stop_control_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._stop_control_response_x2)
+            return future
         return future.result()
+
+    def _check_control_response_x2(self, future):
+        try:
+            response = future.result()
+        except Exception as error:
+            self.node.get_logger().error(f"Control request failed: {error}")
+            return False
+        if not response.success:
+            self.node.get_logger().error(f"Control request rejected: {response.message}")
+            return False
+        return True
+
+    def _start_control_response_x2(self, future):
+        if not self._check_control_response_x2(future):
+            return
+
+        # Wait for the default position transition before enabling client control
+        self.control_start_time = time.time() + self._default_duration
+        self.control_started = False
+
+    def _stop_control_response_x2(self, future):
+        if not self._check_control_response_x2(future):
+            return
+
+        self.control_start_time = None
+        self.control_started = False
 
     def set_default_hand_cmd(self, default_kp=None, default_kd=None):
         """
@@ -849,24 +1257,38 @@ class RobotClient:
         """
         Send robot to default position by calling the ready_position_control service.
         """
-        while not self.ready_position_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.ready_position_client.service_is_ready():
+            raise RuntimeError("ready_position_client service is unavailable.")
+        while self.robot_type != "X2" and not self.ready_position_client.wait_for_service(
+            timeout_sec=1.0
+        ):
             self.node.get_logger().info(
                 "ready_position_control service not available, waiting again..."
             )
 
         request = Trigger.Request()
         future = self.ready_position_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._check_control_response_x2)
+            return future
         return future.result()
 
     def goto_zero_position(self):
         """
         Send robot to zero position by calling the zero_position_control service.
         """
-        while not self.goto_zero_position_client.wait_for_service(timeout_sec=1.0):
+        if self.robot_type == "X2" and not self.goto_zero_position_client.service_is_ready():
+            raise RuntimeError("goto_zero_position_client service is unavailable.")
+        while self.robot_type != "X2" and not self.goto_zero_position_client.wait_for_service(
+            timeout_sec=1.0
+        ):
             self.node.get_logger().info(
                 "zero_position_control service not available, waiting again..."
             )
 
         request = Trigger.Request()
         future = self.goto_zero_position_client.call_async(request)
+        if self.robot_type == "X2":
+            future.add_done_callback(self._check_control_response_x2)
+            return future
         return future.result()
