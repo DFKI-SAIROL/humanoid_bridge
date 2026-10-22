@@ -3,11 +3,11 @@
 > One per repo. The *current* picture: goal, architecture, decisions, open
 > questions. Finished work is removed; git history is the log.
 
-_Last updated: 2026-10-20 · local (lukas-mbp)_
+_Last updated: 2026-10-22 · local (turing)_
 
 ## Goal
 
-The lab's robot stack for Unitree (G1, H1, H1_2) and Booster (T1) humanoids, in
+The lab's robot stack for Unitree (G1, H1, H1_2), Booster (T1) and AgiBot (X2) humanoids, in
 two layers, so the bridge layer can go back to DFKI as PRs while the per-robot
 deploy layers stay independent of it.
 
@@ -17,7 +17,7 @@ deploy layers stay independent of it.
 bridge/           upstream-bound: bridge_interface (msgs, srvs), robot_bridge (C++ + Python client)
 robot_stacks/     per-robot deploy layers; g1/ holds g1_stack and g1_camera
 scripts/          environment setup, sourced not run
-thirdparty/       vendored unitree_ros2, booster_ros2_interface
+thirdparty/       vendored unitree_ros2, booster_ros2_interface, aimdk_msgs
 ```
 
 Fork of `DFKI-SAIROL/humanoid_bridge`. `bridge/` imports nothing from
@@ -45,6 +45,8 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-10-19: G1 remote keys come from `/lowstate.wireless_remote`, not `/wirelesscontroller`, which sends nothing in debug mode; e-stop combos `L1+R1` damp, `R1+R2` hold — `docs/estop.md`
 - 2026-10-20: the bridge holds one robot envelope for every model (range clamp, speed limit, gains, speed trip); model-specific shaping lives in each model's adapter node — `docs/psi0_gates.md`
 - 2026-10-20: G1 arming needs the remote's header; a latch goes silent 1.2 s after `/lowstate` stops, so a restarted robot gets no old frames — `docs/estop.md`
+- 2026-10-22: upstream syncs land as merge commits, never rebase or squash, so upstream commit IDs stay and later syncs and upstream PRs stay simple — PR "Merge DFKI-SAIROL/humanoid_bridge main"
+- 2026-10-22: `BridgeCore::checkState_` calls upstream's virtual `checkStateFreshness_` for state loss; the X2 overrides it, the G1 path is unchanged — same PR
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 
 ## Roadmap

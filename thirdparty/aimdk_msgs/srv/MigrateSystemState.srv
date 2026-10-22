@@ -1,0 +1,5 @@
+# Request a system mode transition
+CommonRequest header
+string state
+---
+CommonResponse header

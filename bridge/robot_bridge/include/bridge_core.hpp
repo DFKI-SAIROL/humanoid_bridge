@@ -72,6 +72,8 @@ namespace sairol_bridge
 
         // Which fault the latest state shows, or None. Logs at most once a second.
         estop::Cause checkState_();
+        // State loss check, called by checkState_ without mutex_; a robot with its own state streams overrides it.
+        virtual bool checkStateFreshness_();
         virtual void finishControl_() = 0;
 
         // E-stop (docs/estop.md). Every stop goes through enterStop_, from any thread.

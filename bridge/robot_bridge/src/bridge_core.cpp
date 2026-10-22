@@ -472,13 +472,10 @@ namespace sairol_bridge
         }
     }
 
-    estop::Cause BridgeCore::checkState_()
+    bool BridgeCore::checkStateFreshness_()
     {
-        // Copy under the lock: lowStateHandler_ writes these on the executor thread.
         std::unique_lock<std::mutex> lock(mutex_);
         const rclcpp::Time last_state_time = last_state_time_;
-        const auto motor_state = currentState_.motor_state;
-        const auto imu = imu_;
         lock.unlock();
 
         auto &clock = *nh->get_clock();
@@ -491,8 +488,26 @@ namespace sairol_bridge
                                   "Robot signal lost! No LowState message received for %.2f seconds. "
                                   "Expected interval ~0.002s (500Hz).",
                                   dt_state_);
+            return false;
+        }
+        return true;
+    }
+
+    estop::Cause BridgeCore::checkState_()
+    {
+        if (!checkStateFreshness_())
+        {
             return estop::Cause::StateLoss;
         }
+
+        // Copy under the lock: lowStateHandler_ writes these on the executor thread.
+        std::unique_lock<std::mutex> lock(mutex_);
+        const auto motor_state = currentState_.motor_state;
+        const auto imu = imu_;
+        lock.unlock();
+
+        auto &clock = *nh->get_clock();
+
         // Check if the state message has valid data
         if (motor_state.size() != static_cast<size_t>(numJoint_))
         {

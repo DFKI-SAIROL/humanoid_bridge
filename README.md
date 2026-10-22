@@ -1,7 +1,7 @@
 # humanoid_bridge
 
-ROS 2 bridge between a control client and Unitree (G1, H1, H1_2) or Booster (T1)
-humanoids. It takes commands on `/robot_cmd`, interpolates them, runs safety
+ROS 2 bridge between a control client and Unitree (G1, H1, H1_2), Booster (T1)
+or AgiBot (X2) humanoids. It takes commands on `/robot_cmd`, interpolates them, runs safety
 checks on command and state, and publishes motor commands at 1 kHz.
 
 ```
@@ -14,14 +14,14 @@ robot_stacks/     per-robot deploy layers
   t1/                 placeholder; the T1 stack has not been written
 scripts/          environment setup, sourced not run
 tools/            helpers, run not sourced
-thirdparty/       vendored unitree_ros2 and booster_ros2_interface
+thirdparty/       vendored unitree_ros2, booster_ros2_interface and aimdk_msgs (X2)
 ```
 
 `bridge/` depends on nothing under `robot_stacks/`. That one-way rule is what
 lets either layer be split out with `git subtree split --prefix=<layer>`.
 
-Built targets are `G1_bridge`, `H1_bridge`, `H1_2_bridge`, `T1_bridge` and
-`test_node`. Other sources under `src/` are upstream leftovers that no target
+Built targets are `G1_bridge`, `H1_bridge`, `H1_2_bridge`, `T1_bridge`,
+`X2_bridge` (only with `-DBUILD_AGIBOT_X2=ON`) and `test_node`. Other sources under `src/` are upstream leftovers that no target
 builds.
 
 ## Fork or upstream
@@ -72,6 +72,9 @@ source /opt/ros/humble/setup.bash
 tools/install-build-deps.sh     # first time on a fresh host
 tools/build.sh                  # G1, H1, H1_2
 tools/build.sh --t1             # also the Booster T1
+# AgiBot X2, into install_x2/ for scripts/setup_x2.sh:
+tools/build.sh -- --build-base build_x2 --install-base install_x2 \
+    --cmake-args -DBUILD_BOOSTER_T1=OFF -DBUILD_AGIBOT_X2=ON
 ```
 
 The Python client installs with the package, so there is no `pip install` step
@@ -86,6 +89,7 @@ your cabling; a wrong one fails silently.
 ```bash
 BRIDGE_IFACE=<nic> source scripts/setup_unitree.sh   # G1, H1, H1_2
 source scripts/setup_booster.sh                      # T1
+source scripts/setup_x2.sh                           # X2 (Fast DDS)
 ```
 
 On the G1, one script does the whole ordering: release `/lowcmd`, start the
@@ -212,8 +216,10 @@ tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.
 - **H1, H1_2: an abort does not release the joints.** `finishControl_` only
   logs, so the robot holds its last pose at full kp/kd. Only T1 drops to damping.
 - **`kp = 0` makes the torque clamp a no-op for that joint** (`upper_limbs_kp_min: 0.0`).
-- **`robot_bridge/package.xml` depends on `booster_interface` unconditionally**,
-  so it builds even with T1 off.
+- **`robot_bridge/package.xml` depends on `booster_interface` and `aimdk_msgs`
+  unconditionally**, so both build even with T1 and X2 off.
+- **X2: never run on a robot in this fork.** Every stop damps and latches in
+  `X2Bridge`; motion again needs a bridge restart, not `/estop_reset`.
 - **Hand control needs its own `/start_hand_control`.** `/start_control` does
   not enable it, and it refuses any hand whose state topic is silent.
 - **`create domain error` from a DDS client**: `unitree_sdk2py` hardcodes

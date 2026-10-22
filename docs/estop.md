@@ -165,3 +165,30 @@ Author on the remote, robot hanging. G6-IMU not run (needs `imu_rpy_threshold: 0
 | G5 `/stop_control` | `STOPPED hold stop`, re-arm without reset |
 | G6 timeout | `LATCHED hold cmd_timeout` 0.70 s after one command with `duration 0.5` |
 | Mid-motion | shoulder pitch lifted 0.8 rad over 8 s: `L1+R1` sinks back in ~2 s; `R1+R2` freezes, **snappy** (brake profile: `docs/psi0_gates.md` gate 10) |
+
+## Gantry acceptance, after PR #7 (not run)
+
+PR #7 (gates, remote rule, silent latch) merged on 2026-10-22 without it. Bridge and g1_web_commander built in one workspace `<ws>`:
+
+```bash
+B=<ws>/src/humanoid_bridge/tools; C=<ws>/src/g1_web_commander/tools
+$B/g1-bringup.sh --stop
+$B/g1-bringup.sh --workspace <ws> --iface enp4s0
+$C/g1-commander.sh --workspace <ws> --adapter humanoid_locoman_vla   # own tmux pane
+```
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | read the commander start output | `bridge interface` ok, `G1 limits vs URDF` ok |
+| 1b | open the Jog tab | 29 motors: the table came from `/robot_bridge` |
+| 2 | remote off, click Arm | refused "remote not connected"; pill `no remote` |
+| 2b | after a robot restart, before the release: Arm | refused "other /lowcmd publisher" |
+| 3 | remote on, Arm at measured pose | pill `remote`; armed, nothing moves |
+| 4 | `ros2 service call /start_control bridge_interface/srv/SetDefaultPosition "{default_position: [0.0, 0.0]}"` | `success: false`, nothing moves |
+| 5 | armed, no jog: `$B/g1-step-test.py --joint R_ELBOW --delta 0.5` | elbow ramps, no snap; both lines PASS (<= 3 rad/s) |
+| 6 | page DAMP, HOLD; remote `L1+R1`, `R1+R2`; RESET | as on 2026-10-19 |
+| 7 | armed, pull the Ethernet cable 5 s, plug it in | log `No /lowstate for 1.2 s: … silent`; robot stays passive after the cable is back; RESET -> `DISARMED` |
+| 8 | `$B/g1-bringup.sh --stop` | `stopped`, no SIGKILL line |
+
+- `tools/test.sh` with the robot cabled: only in a namespace with no NIC: `unshare -rn bash -c 'ip link set lo up multicast on; ip route add 224.0.0.0/4 dev lo; …; tools/test.sh --rmw cyclonedds'`.
+- `ros2 topic` shows 0 publishers after a link drop: use `--no-daemon`.
