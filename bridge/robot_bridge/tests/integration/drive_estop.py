@@ -228,6 +228,16 @@ class Driver:
         self.check("start_control with 14 values refused", not reply.success, reply.message)
         reply = self.client.start_control(default_position=[5.0] * NUM_MOTORS, timeout_sec=30.0)
         self.check("start_control out of range refused", not reply.success, reply.message)
+        # Gains were dropped silently: the bridge arms with its config gains.
+        request = self.client.start_control_client.srv_type.Request()
+        request.default_position = [0.123] * NUM_MOTORS
+        request.default_kp = [50.0] * NUM_MOTORS
+        reply = self.client._call(self.client.start_control_client, request, 30.0)
+        self.check(
+            "start_control with default_kp refused",
+            not reply.success and "default_kp" in reply.message,
+            reply.message,
+        )
 
         # Another /lowcmd writer (a restarted robot's motion service) blocks arming.
         other = self.node.create_publisher(LowCmd, "/lowcmd", 10)

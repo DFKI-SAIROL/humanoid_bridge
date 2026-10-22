@@ -954,6 +954,11 @@ namespace sairol_bridge
                       std::to_string(joints_[i].q_max) + "]";
             }
         }
+        // Arming always ramps with the joint config gains: requested gains would be dropped silently.
+        if (bad.empty() && (!request->default_kp.empty() || !request->default_kd.empty()))
+        {
+            bad = "default_kp/default_kd are not supported: the bridge uses the config gains";
+        }
         if (!bad.empty())
         {
             RCLCPP_WARN(nh->get_logger(), "Start control refused: %s", bad.c_str());

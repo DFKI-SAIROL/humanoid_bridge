@@ -1,6 +1,6 @@
 float64[] default_position
-float64[] default_kp
-float64[] default_kd
+float64[] default_kp   # must be empty: the bridge arms with the config gains
+float64[] default_kd   # must be empty
 ---
 bool success
 string message
