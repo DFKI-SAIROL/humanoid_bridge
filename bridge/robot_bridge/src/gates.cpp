@@ -17,13 +17,13 @@ namespace sairol_bridge::gates
     }
 
     float_t torqueWindow(float_t q, float_t q_meas, float_t dq_meas, float_t dq_cmd,
-                         float_t kp, float_t kd, float_t tau_limit)
+                         float_t kp, float_t kd, float_t tau, float_t tau_limit)
     {
         if (!(kp > 1e-6f))
         {
             return q_meas;
         }
-        const float_t bias = kd * (dq_meas - dq_cmd);
+        const float_t bias = kd * (dq_meas - dq_cmd) - tau;   // the feedforward uses up part of tau_limit
         return std::clamp(q, (bias - tau_limit) / kp + q_meas, (bias + tau_limit) / kp + q_meas);
     }
 

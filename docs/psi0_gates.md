@@ -31,10 +31,10 @@ No current check blocks psi0. Missing: gates 1, 2, 4. Too loose: gates 5, 6, 7, 
 
 | # | Gate | Today | Decision (2026-10-20) |
 |---|---|---|---|
-| 1 | Target q in joint range | none on the body path | clamp to `[q_min, q_max]`; warn max 1/s |
+| 1 | Target q in joint range | none on the body path | clamp to `[q_min, q_max]`; warn max 1/s. Gate 4 runs after it and can move q past a limit (see 4) |
 | 2 | Target q speed | none: a step goes out as a step | rate limit per tick: `q_rate_limit` arms 3.0 rad/s, `q_rate_limit_default` 6.0; leg value revisited after the MuJoCo rehearsal |
 | 3 | Client interpolation | `pack_robot_cmd` / `RobotCmdClient` default 0 (step) | default 1; `gear_controller` passes 0 explicitly (GEAR's own timing) |
-| 4 | Torque window | divides by kp: at kp 0 with kd·Δdq > `tau_limit`, q = ±inf | at kp < 1e-6 send `q = q_meas` |
+| 4 | Torque window | divides by kp: at kp 0 with kd·Δdq > `tau_limit`, q = ±inf | at kp < 1e-6 send `q = q_meas`; the command's `tau` counts against `tau_limit` (not on parallel joints, which drop it). A `tau` away from a limit can move q past it; the net torque still points away (L_SHOULDER_PITCH: q_meas 2.66, dq_meas 2, tau −25 → q ≥ 2.70 > q_max 2.6704) |
 | 5 | Gain range | kp, kd in `[0, 5000]` | strong (hips, knees, waist): kp `[0, 350]`; others (ankles, arms): kp `[0, 150]`; kd `[0, 10]` both |
 | 6 | Speed limits | ankles, waist roll/pitch at 37 vs URDF 30 | set those 6 to 30; hip roll stays 20 (rev 1.0 URDF value) |
 | 7 | IMU trip | 1.0 rad roll or pitch | keep; ~0.5 rad after the rehearsal measures standing tilt under GEAR and psi0 |

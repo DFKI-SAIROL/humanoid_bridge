@@ -82,9 +82,26 @@ TEST(Rate, NonFinitePreviousFallsBackToTheRange)
 TEST(Window, BoundsByTorqueOverKp)
 {
     // 25 Nm / 50 = 0.5 rad either side of the measured pose, at rest.
-    EXPECT_FLOAT_EQ(torqueWindow(2.0f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 25.0f), 0.5f);
-    EXPECT_FLOAT_EQ(torqueWindow(-2.0f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 25.0f), -0.5f);
-    EXPECT_FLOAT_EQ(torqueWindow(0.2f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 25.0f), 0.2f);
+    EXPECT_FLOAT_EQ(torqueWindow(2.0f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 0.0f, 25.0f), 0.5f);
+    EXPECT_FLOAT_EQ(torqueWindow(-2.0f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 0.0f, 25.0f), -0.5f);
+    EXPECT_FLOAT_EQ(torqueWindow(0.2f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 0.0f, 25.0f), 0.2f);
+}
+
+TEST(Window, FeedforwardCountsAgainstTheLimit)
+{
+    // tau +25 Nm already uses all of tau_limit: the PD part may only pull back, by up to 50 Nm.
+    EXPECT_FLOAT_EQ(torqueWindow(2.0f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 25.0f, 25.0f), 0.0f);
+    EXPECT_FLOAT_EQ(torqueWindow(-2.0f, 0.0f, 0.0f, 0.0f, 50.0f, 2.0f, 25.0f, 25.0f), -1.0f);
+    // kp·Δq + kd·Δdq + tau within ±tau_limit for any target and either sign of tau.
+    for (const float_t tau : {-25.0f, -10.0f, 10.0f, 25.0f})
+    {
+        for (const float_t target : {-2.0f, 2.0f})
+        {
+            const float_t q = torqueWindow(target, 0.1f, 0.5f, 0.0f, 50.0f, 2.0f, tau, 25.0f);
+            const float_t total = 50.0f * (q - 0.1f) + 2.0f * (0.0f - 0.5f) + tau;
+            EXPECT_LE(std::fabs(total), 25.0f + 1e-3f) << "tau " << tau << ", target " << target;
+        }
+    }
 }
 
 TEST(Window, ZeroKpGivesTheMeasuredPose)
@@ -93,7 +110,7 @@ TEST(Window, ZeroKpGivesTheMeasuredPose)
     {
         for (const float_t dq : {0.0f, 20.0f, -20.0f})
         {
-            const float_t q = torqueWindow(1.5f, 0.3f, dq, 0.0f, 0.0f, kd, 25.0f);
+            const float_t q = torqueWindow(1.5f, 0.3f, dq, 0.0f, 0.0f, kd, 0.0f, 25.0f);
             EXPECT_TRUE(std::isfinite(q));
             EXPECT_FLOAT_EQ(q, 0.3f);
         }
@@ -121,6 +138,6 @@ TEST(Finite, CatchesANanMeasuredQAtKpZero)
 {
     // A NaN /lowstate after checkState_'s copy: gate 4 at kp 0 passes q_meas through.
     const float_t nan = std::numeric_limits<float_t>::quiet_NaN();
-    const float_t q = torqueWindow(0.3f, nan, 0.0f, 0.0f, 0.0f, 2.0f, 25.0f);
+    const float_t q = torqueWindow(0.3f, nan, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 25.0f);
     EXPECT_FALSE(finiteCommand(q, 0.0f, 0.0f, 2.0f, 0.0f));
 }

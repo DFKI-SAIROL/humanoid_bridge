@@ -11,10 +11,10 @@ namespace sairol_bridge::gates
     // q_prev (the last target sent). q_rate_limit 0: range only.
     float_t limitTarget(float_t q_target, float_t q_prev, const Joint &joint, float_t dt);
 
-    // Gate 4: the torque-implied window |q - q_meas| <= (tau_limit ± kd·Δdq)/kp.
+    // Gate 4: the torque-implied window, so kp·(q - q_meas) + kd·(dq_cmd - dq_meas) + tau stays within ±tau_limit.
     // At kp ~ 0 q has no effect, so q_meas: never a division by zero, never inf or NaN.
     float_t torqueWindow(float_t q, float_t q_meas, float_t dq_meas, float_t dq_cmd,
-                         float_t kp, float_t kd, float_t tau_limit);
+                         float_t kp, float_t kd, float_t tau, float_t tau_limit);
 
     // The last check of a tracking frame: false if any field is NaN or Inf.
     bool finiteCommand(float_t q, float_t dq, float_t kp, float_t kd, float_t tau);
