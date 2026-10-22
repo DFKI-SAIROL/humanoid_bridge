@@ -53,6 +53,9 @@ Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
 - [ ] Jetson link watcher: a process on the Jetson freezes the robot (`hold`, `docs/estop.md`) when the link to the bridge on the lab PC drops, Ethernet or WiFi. It must act within 0.4 s: the motors go passive 0.4 s after `/lowcmd` stops (G0), so a link drop today drops a standing robot.
   **Done when:** on the gantry, armed, a pulled Ethernet cable and a dropped WiFi link each leave the robot holding its pose until a reset, and the watcher sends nothing while the bridge runs or after a normal disarm.
 
+- [ ] Measure on the gantry what Unitree's motion service does when it takes over `/lowcmd` while the bridge is latched `other_lowcmd` (damp frames keep going, `docs/estop.md`).
+  **Done when:** the result is in `docs/estop.md`, and the `other_lowcmd` rule (keep damp vs go silent) is confirmed or changed.
+
 ### Upstream fixes — one branch each
 
 - [ ] `fix/g1-default-pos-29`: G1 `_default_pos` is 27 long while kp/kd are 29 (`robot_client.py`). **Done when:** all three are 29 and a length check fails loudly.

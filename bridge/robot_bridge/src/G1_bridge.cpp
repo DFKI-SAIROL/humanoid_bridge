@@ -43,6 +43,8 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
 
     // Here, not last: the hand block below returns early without hand parameters.
     createArmingServices_();
+    // Arming checks /lowcmd once; this catches a sender that starts later (motion service, a script).
+    lowcmdWatchTimer_ = nh->create_wall_timer(1s, std::bind(&G1Bridge::watchLowcmd_, this));
 
     hands_[HAND_LEFT].name = "left";
     hands_[HAND_RIGHT].name = "right";
@@ -130,6 +132,24 @@ bool sairol_bridge::G1Bridge::robotAllowsArming_(std::string &why)
         return false;
     }
     return true;
+}
+
+sairol_bridge::estop::Cause sairol_bridge::G1Bridge::robotFault_()
+{
+    // This bridge's own publisher counts once.
+    return nh->count_publishers("/lowcmd") > 1 ? estop::Cause::OtherLowcmd : estop::Cause::None;
+}
+
+void sairol_bridge::G1Bridge::watchLowcmd_()
+{
+    const bool sending = controlStarted_ || stopPublishing_;
+    const estop::Cause fault =
+        estop::faultOnset(sending ? robotFault_() : estop::Cause::None, lastLowcmdFault_);
+    if (fault != estop::Cause::None)
+    {
+        RCLCPP_ERROR(nh->get_logger(), "Another node publishes /lowcmd while this bridge sends: two senders fight");
+        enterStop_(fault);
+    }
 }
 
 void sairol_bridge::G1Bridge::stop()

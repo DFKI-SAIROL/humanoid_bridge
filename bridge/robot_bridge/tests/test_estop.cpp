@@ -339,6 +339,14 @@ TEST(Latch, TimeoutHoldsAndLatches)
     EXPECT_EQ(latch.mode(), Mode::Hold);
 }
 
+TEST(Latch, OtherLowcmdLatchesDampOverHold)
+{
+    SafetyLatch latch = latchedFromTracking(Cause::CmdTimeout);
+    EXPECT_TRUE(latch.trigger(Cause::OtherLowcmd, false).changed);
+    EXPECT_EQ(latch.describe(false), "LATCHED damp other_lowcmd");
+    EXPECT_TRUE(latch.publishing());
+}
+
 TEST(Latch, HoldAfterStopHoldKeepsPose)
 {
     SafetyLatch latch;

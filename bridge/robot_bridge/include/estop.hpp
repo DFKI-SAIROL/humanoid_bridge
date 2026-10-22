@@ -20,7 +20,8 @@ namespace sairol_bridge::estop
         RemoteDamp, RemoteHold,     // operator, mode fixed
         ServiceDamp, ServiceHold,   // operator, mode fixed
         Stop,                       // /stop_control, the only cause that does not latch
-        Imu, StateLoss, StateInvalid, CmdTimeout   // faults
+        Imu, StateLoss, StateInvalid, CmdTimeout,  // faults
+        OtherLowcmd                 // fault, damp fixed: another /lowcmd publisher while sending
     };
 
     // Same bits as WirelessKey_H1_G1, plus F1/F2.

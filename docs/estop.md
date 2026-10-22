@@ -32,7 +32,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 - Arming services: `/start_control`, `/ready_position_control`, `/zero_position_control`, `/start_hand_control`.
 - `estop.require_remote: true`: every arming service is refused unless the remote's header (`0x55 0x51`) arrived in the last 0.5 s. Measured 2026-10-20: remote off = all 40 bytes 0; at rest the bytes stay constant, so only the header counts. Remote lost while armed: open question. Ready and zero count as arming even while `ARMED`: they move every joint, so they also need the remote and a free `/lowcmd`.
 - Latched, `/lowstate` older than 1.2 s (0.2 s `state_loss` + 1 s): the latch goes silent and stays silent until reset (`LATCHED … silent`). A robot that restarts meanwhile runs its own motion service; old frames would fight it (2026-10-20).
-- G1 arming is also refused while any other program publishes `/lowcmd` (a restarted robot's motion service): release it first.
+- G1 arming is also refused while any other program publishes `/lowcmd` (a restarted robot's motion service): release it first. One that starts while the bridge publishes latches `damp other_lowcmd` within about 1 s (checked once a second); the damp frames go on until reset or exit.
 - `/start_control`, `/ready_position_control`, `/zero_position_control` exist only after the startup waits (`/lowcmd` free, `/lowstate` up): DDS would store a call made during the wait and arm once the bridge spins.
 - Hands: a released hand whose state is gone for 1.2 s gets no more limp frames.
 - Arming moves the robot: `initControl_` ramps to the start pose over `duration` (2 s). It zeroes dq and tau: the last client's feedforward never rides on the arming hold, which has no timeout.
@@ -74,9 +74,10 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 | state age > 0.2 s | `state_loss` | damp (config) | yes |
 | state NaN, length, `dq` over limit; a non-finite tracking frame | `state_invalid` | damp (config) | yes |
 | command timeout | `cmd_timeout` | hold (config) | yes |
+| another `/lowcmd` publisher while publishing | `other_lowcmd` | damp (fixed) | yes |
 
 - GEAR sends `duration 0.02`, no `hold_position`: a GEAR stall over 0.22 s latches `cmd_timeout`.
-- `/estop_reset` is refused while its cause is still present: state stale, IMU over threshold, NaN, or a combo still held.
+- `/estop_reset` is refused while its cause is still present: state stale, IMU over threshold, NaN, a combo still held, or another `/lowcmd` publisher.
 - Body arming (`start_control`, `ready`/`zero` while disarmed) is refused while `checkState_` reports a fault (state stale, NaN, `dq`, IMU); the reply names the cause, e.g. `robot state fault: state_loss`.
 - No remote reset: a reset combo can be hit while pressing buttons in a panic.
 - State age, command timeout, remote age, the hand watchdogs and their throttled logs run on one steady clock (`steadyClock_`): a wall-clock step does not blind them. Not tested: the clock step itself.

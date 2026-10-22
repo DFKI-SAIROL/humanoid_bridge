@@ -356,6 +356,29 @@ class Driver:
         self.check_state("ARMED again", "ARMED")
         self.check("[] ramped to ready_q", *self.at(self.params["ready_q"]))
 
+        # Another /lowcmd sender while armed (motion service, a script): two senders fight.
+        other = self.node.create_publisher(LowCmd, "/lowcmd", 10)  # never publishes
+        appeared = time.monotonic()
+        latched = self.wait_state("LATCHED damp other_lowcmd", timeout=3.0)
+        took = time.monotonic() - appeared
+        self.check(
+            "another /lowcmd publisher latches damp",
+            latched and took <= 1.5,
+            f"{took:.2f} s, state '{self.state}'",
+        )
+        self.spin(0.2)
+        self.check("other_lowcmd frame is damp", *self.frame(damp_kp, damp_kd))
+        reply = self.client.estop_reset()
+        self.check(
+            "estop_reset refused while it is there",
+            not reply.success and "other_lowcmd" in reply.message,
+            reply.message,
+        )
+        self.node.destroy_publisher(other)
+        self.spin(1.0)
+        self.check("estop_reset once it is gone", self.client.estop_reset().success)
+        self.check_state("reset -> STOPPED damp", "STOPPED damp other_lowcmd")
+
         # Ready and zero move every joint: armed, they still need the remote.
         # Armed at 0.2 (not ready_q), so an accepted ready must move every joint.
         self.client.stop_control()

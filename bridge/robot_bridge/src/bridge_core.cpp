@@ -859,6 +859,10 @@ namespace sairol_bridge
         {
             present = estop::remoteCause(remoteKeys_, estopConfig_);
         }
+        if (present == estop::Cause::None)
+        {
+            present = robotFault_();
+        }
 
         std::string why, state;
         bool ok = false;

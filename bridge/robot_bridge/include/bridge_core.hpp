@@ -97,6 +97,8 @@ namespace sairol_bridge
         bool remoteAllowsArming_(std::string &why);
         // Robot-specific arming refusals. Default: none.
         virtual bool robotAllowsArming_(std::string &why) { (void)why; return true; }
+        // A robot-specific fault still present, for /estop_reset. Default: none.
+        virtual estop::Cause robotFault_() { return estop::Cause::None; }
         // Called by update_() with mutex_ held, while stopped. Default: silent.
         virtual void publishStopCommand_() {}
         void syncLatchFlags_();   // mutex_ held

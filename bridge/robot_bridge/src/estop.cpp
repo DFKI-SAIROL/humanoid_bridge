@@ -74,6 +74,7 @@ namespace sairol_bridge::estop
         case Cause::StateLoss: return "state_loss";
         case Cause::StateInvalid: return "state_invalid";
         case Cause::CmdTimeout: return "cmd_timeout";
+        case Cause::OtherLowcmd: return "other_lowcmd";
         default: return "none";
         }
     }

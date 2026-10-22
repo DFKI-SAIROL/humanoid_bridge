@@ -84,6 +84,10 @@ private:
     bool checkExternalPublisher_(std::string topic_name);
     // Refused while anything besides this bridge publishes /lowcmd (a restarted robot's motion service).
     bool robotAllowsArming_(std::string &why) override;
+    // other_lowcmd while another node publishes /lowcmd.
+    estop::Cause robotFault_() override;
+    // Once a second while frames go out: another /lowcmd sender latches damp at its onset.
+    void watchLowcmd_();
 
     // --- Dex3 hands --------------------------------------------------------
     // All of these run on the executor thread (subscriptions and the wall timer
@@ -113,6 +117,8 @@ private:
     rclcpp::Publisher<unitree_hg::msg::LowCmd>::SharedPtr lowCommandPublisher_;
     int mode_machine_{0};
     estop::Cause lastRemote_{estop::Cause::None};   // executor thread only
+    rclcpp::TimerBase::SharedPtr lowcmdWatchTimer_;
+    estop::Cause lastLowcmdFault_{estop::Cause::None};   // executor thread only
 
     HandChannel hands_[NUM_HANDS];
     rclcpp::TimerBase::SharedPtr handTimer_;

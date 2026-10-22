@@ -47,6 +47,7 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-10-20: G1 arming needs the remote's header; a latch goes silent 1.2 s after `/lowstate` stops, so a restarted robot gets no old frames — `docs/estop.md`
 - 2026-10-22: upstream syncs land as merge commits, never rebase or squash, so upstream commit IDs stay and later syncs and upstream PRs stay simple — PR "Merge DFKI-SAIROL/humanoid_bridge main"
 - 2026-10-22: `BridgeCore::checkState_` calls upstream's virtual `checkStateFreshness_` for state loss; the X2 overrides it, the G1 path is unchanged — same PR
+- 2026-10-22: another `/lowcmd` sender while ARMED latches damp (`other_lowcmd`) and the bridge keeps sending damp frames, not silence: silence would hand the robot to an unknown sender and disable the remote e-stop combos; revisit after the gantry measurement (roadmap) — PR "fix(bridge): latch damp when another program sends /lowcmd (B11b)"
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 
 ## Roadmap
