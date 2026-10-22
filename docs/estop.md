@@ -39,7 +39,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 - One entry point `enterStop_(cause)` for every trigger, any thread. It sets the state atomically, snapshots measured q under `mutex_`, then calls `finishControl_`.
 - Mode changes while stopped: an operator e-stop sets the mode it names (hold after damp re-stiffens at the current pose). A fault only turns `hold` into `damp`.
 - Faults and combos fire at onset only (author, 2026-10-19): an operator hold during a lasting fault stays. Combo hold → damp (L1 added) fires; damp → hold (L1 released first) does not.
-- A non-finite measured q never reaches `/lowcmd`: that joint gets damp at q 0.
+- A non-finite measured q never reaches `/lowcmd`: in a stop frame that joint gets damp at q 0; a tracking frame with any non-finite field is not sent and latches `state_invalid`.
 - Hands: in `LATCHED` the hand timer sends its existing limp frames. `STOPPED` leaves the hands alone.
 - New topic `/bridge_state` (`std_msgs/String`, transient-local, on change), e.g. `LATCHED damp remote_damp`.
 
@@ -72,7 +72,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 | `/stop_control` | `stop` | hold (config) | **no** |
 | IMU roll/pitch over threshold | `imu` | damp (config) | yes |
 | state age > 0.2 s | `state_loss` | damp (config) | yes |
-| state NaN, length, `dq` over limit | `state_invalid` | damp (config) | yes |
+| state NaN, length, `dq` over limit; a non-finite tracking frame | `state_invalid` | damp (config) | yes |
 | command timeout | `cmd_timeout` | hold (config) | yes |
 
 - GEAR sends `duration 0.02`, no `hold_position`: a GEAR stall over 0.22 s latches `cmd_timeout`.

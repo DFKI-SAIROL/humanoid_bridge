@@ -150,6 +150,7 @@ namespace sairol_bridge
         std::atomic<uint16_t> remoteKeys_{0};
         std::atomic<double> lastRemoteHeader_{-1e9};   // clock seconds; set by the robot's state handler
         estop::Cause lastFault_{estop::Cause::None};   // control thread only
+        bool invalidFrame_{false};   // control thread only: publishLowCommand_ sent nothing, a field not finite
 
 
         virtual void stopControlServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,

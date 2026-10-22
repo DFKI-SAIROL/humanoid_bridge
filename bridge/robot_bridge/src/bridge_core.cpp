@@ -410,6 +410,14 @@ namespace sairol_bridge
                     publishStopCommand_();
                 }
                 lock.unlock();
+                // enterStop_ takes mutex_, so publishLowCommand_ only flags the frame it did not send.
+                if (invalidFrame_)
+                {
+                    invalidFrame_ = false;
+                    lastFault_ = estop::Cause::StateInvalid;
+                    RCLCPP_ERROR(nh->get_logger(), "Tracking frame not finite: not sent");
+                    enterStop_(estop::Cause::StateInvalid);
+                }
             }
             else
             {

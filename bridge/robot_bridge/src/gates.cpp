@@ -26,4 +26,10 @@ namespace sairol_bridge::gates
         const float_t bias = kd * (dq_meas - dq_cmd);
         return std::clamp(q, (bias - tau_limit) / kp + q_meas, (bias + tau_limit) / kp + q_meas);
     }
+
+    bool finiteCommand(float_t q, float_t dq, float_t kp, float_t kd, float_t tau)
+    {
+        return std::isfinite(q) && std::isfinite(dq) && std::isfinite(kp) && std::isfinite(kd) &&
+               std::isfinite(tau);
+    }
 } // namespace sairol_bridge::gates

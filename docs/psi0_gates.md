@@ -72,6 +72,6 @@ q_cmd    = q_prev + clamp(q_target - q_prev, -v_max·dt, +v_max·dt)         # g
 
 | Level | What |
 |---|---|
-| gtest | clamp at both limits; rate step never exceeds `v_max·dt`; seeding; kp 0 gives `q_meas`, never inf or NaN |
+| gtest | clamp at both limits; rate step never exceeds `v_max·dt`; seeding; kp 0 gives `q_meas`, never inf or NaN; a non-finite field fails the last frame check |
 | fake wire (`--gates`, `--estop`) | a 1 rad step ramps at <= `v_max` (elbow 0.331 s at 3.0, hip 0.165 s at 6.0); a target past `q_max` stops at `q_max`; the first arm after boot holds the measured pose; `start_control` with 14 values refused, `[]` arms to `ready_q` |
 | gantry | the elbow step from G-mid-motion again: smooth at `v_max`, no snap |

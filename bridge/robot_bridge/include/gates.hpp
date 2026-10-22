@@ -15,4 +15,7 @@ namespace sairol_bridge::gates
     // At kp ~ 0 q has no effect, so q_meas: never a division by zero, never inf or NaN.
     float_t torqueWindow(float_t q, float_t q_meas, float_t dq_meas, float_t dq_cmd,
                          float_t kp, float_t kd, float_t tau_limit);
+
+    // The last check of a tracking frame: false if any field is NaN or Inf.
+    bool finiteCommand(float_t q, float_t dq, float_t kp, float_t kd, float_t tau);
 } // namespace sairol_bridge::gates

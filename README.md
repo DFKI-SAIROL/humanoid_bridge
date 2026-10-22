@@ -40,6 +40,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | Arming services exist during the startup waits, so a call made then arms later | upstream | fixed here: created after the waits, no PR yet |
 | G1 `_default_pos` is 27 long while kp/kd are 29 | upstream | **open**, `fix/g1-default-pos-29` |
 | `finishControl_` only logs on G1, H1, H1_2, so an abort holds at full gains | upstream | G1: fixed here by the e-stop latch (`docs/estop.md`); H1, H1_2: open |
+| G1 tracking frame carries a NaN `/lowstate` that lands after `checkState_` (kp-0 and parallel joints) | upstream | fixed here: not sent, latches `state_invalid`, no PR yet |
 | G1 target gates: range clamp, speed limit, kp-0 torque window (`docs/psi0_gates.md`) | upstream | added here, no PR yet |
 | `start_control` keeps the last `/robot_cmd`'s dq and tau in its endless hold | upstream | G1: fixed here, no PR yet; H1, H1_2, T1, X2: open |
 | G1 arming needs the remote (`estop.require_remote`) | upstream | added here, no PR yet |

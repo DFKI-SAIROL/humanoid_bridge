@@ -219,6 +219,7 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
     unitree_cmd.mode_machine = mode_machine_;
     unitree_cmd.mode_pr = PRorAB::PR;
 
+    bool finite = true;
     for (int i = 0; i < numJoint_; ++i)
     {
         auto &cmd = unitree_cmd.motor_cmd[i];
@@ -279,7 +280,13 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
             cmd.q = currentState_.motor_state[i].q;
             cmd.kp = 0.0;
         }   
-        
+        finite = finite && gates::finiteCommand(cmd.q, cmd.dq, cmd.kp, cmd.kd, cmd.tau);
+    }
+    // A NaN /lowstate after checkState_'s copy reaches kp-0 and parallel joints: send nothing.
+    if (!finite)
+    {
+        invalidFrame_ = true;   // update_() latches state_invalid once mutex_ is free
+        return;
     }
     get_crc(unitree_cmd);
     lowCommandPublisher_->publish(unitree_cmd);
@@ -684,8 +691,9 @@ void sairol_bridge::G1Bridge::publishOneHand_(int side, bool limp)
         if (limp)
         {
             // Zero gains and zero feedforward is what makes the finger slack; q
-            // is carried only so a recording shows where the hand was.
-            cmd.q = (static_cast<int>(hand.state.motor_state.size()) > i)
+            // is carried only so a recording shows where the hand was. Non-finite: 0, as in estop::stopFrame.
+            cmd.q = (static_cast<int>(hand.state.motor_state.size()) > i &&
+                     std::isfinite(hand.state.motor_state[i].q))
                         ? hand.state.motor_state[i].q
                         : 0.0f;
             cmd.dq = 0.0f;

@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <limits>
 
 using namespace sairol_bridge;
 using namespace sairol_bridge::gates;
@@ -97,4 +98,29 @@ TEST(Window, ZeroKpGivesTheMeasuredPose)
             EXPECT_FLOAT_EQ(q, 0.3f);
         }
     }
+}
+
+// --- last check: a tracking frame goes out only when every field is finite ----
+
+TEST(Finite, EveryFieldIsChecked)
+{
+    EXPECT_TRUE(finiteCommand(0.1f, 0.0f, 50.0f, 2.0f, 0.5f));
+    const float_t nan = std::numeric_limits<float_t>::quiet_NaN();
+    const float_t inf = std::numeric_limits<float_t>::infinity();
+    for (const float_t bad : {nan, inf, -inf})
+    {
+        EXPECT_FALSE(finiteCommand(bad, 0.0f, 50.0f, 2.0f, 0.0f));
+        EXPECT_FALSE(finiteCommand(0.0f, bad, 50.0f, 2.0f, 0.0f));
+        EXPECT_FALSE(finiteCommand(0.0f, 0.0f, bad, 2.0f, 0.0f));
+        EXPECT_FALSE(finiteCommand(0.0f, 0.0f, 50.0f, bad, 0.0f));
+        EXPECT_FALSE(finiteCommand(0.0f, 0.0f, 50.0f, 2.0f, bad));
+    }
+}
+
+TEST(Finite, CatchesANanMeasuredQAtKpZero)
+{
+    // A NaN /lowstate after checkState_'s copy: gate 4 at kp 0 passes q_meas through.
+    const float_t nan = std::numeric_limits<float_t>::quiet_NaN();
+    const float_t q = torqueWindow(0.3f, nan, 0.0f, 0.0f, 0.0f, 2.0f, 25.0f);
+    EXPECT_FALSE(finiteCommand(q, 0.0f, 0.0f, 2.0f, 0.0f));
 }
