@@ -39,6 +39,8 @@ sairol_bridge::T1Bridge::T1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
     }
+
+    createArmingServices_();
 }
 
 void sairol_bridge::T1Bridge::stop()

@@ -153,8 +153,7 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         }
     });
 
-    // Reject motion services while damping is latched, with an explicit reply.
-    startControlService_.reset();
+    // X2's own createArmingServices_(): reject motion services while damping is latched, with an explicit reply.
     startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>("start_control",
         [this](const std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Request> request,
                std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Response> response) {
@@ -169,7 +168,6 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
             }
         });
 
-    readyPositionService_.reset();
     readyPositionService_ = nh->create_service<std_srvs::srv::Trigger>("ready_position_control",
         [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
@@ -184,7 +182,6 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
             }
         });
 
-    zeroPositionService_.reset();
     zeroPositionService_ = nh->create_service<std_srvs::srv::Trigger>("zero_position_control",
         [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                std::shared_ptr<std_srvs::srv::Trigger::Response> response) {

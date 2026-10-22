@@ -15,6 +15,8 @@ sairol_bridge::H1_2Bridge::H1_2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore
     remoteControlSubscriber_ = nh->create_subscription<unitree_go::msg::WirelessController>(
         "/wirelesscontroller", 10, std::bind(&sairol_bridge::H1_2Bridge::wireless_callback, this, std::placeholders::_1));
 
+    // Let discovery settle: checked too early, an existing /lowcmd publisher is missed and nothing waits.
+    rclcpp::sleep_for(std::chrono::seconds(1));
     while (!checkExternalPublisher_("/lowcmd"))
     {
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
@@ -27,6 +29,8 @@ sairol_bridge::H1_2Bridge::H1_2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
     }
+
+    createArmingServices_();
 }
 
 bool sairol_bridge::H1_2Bridge::checkExternalPublisher_(std::string topic_name)

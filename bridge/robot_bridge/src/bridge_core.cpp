@@ -34,14 +34,7 @@ namespace sairol_bridge
         stopControlService_ = nh->create_service<std_srvs::srv::Trigger>(
             "stop_control", std::bind(&BridgeCore::stopControlServiceCB_, this, _1, _2));
 
-        readyPositionService_ = nh->create_service<std_srvs::srv::Trigger>(
-            "ready_position_control", std::bind(&BridgeCore::readyPositionControlServiceCB_, this, _1, _2));
-
-        zeroPositionService_ = nh->create_service<std_srvs::srv::Trigger>(
-            "zero_position_control", std::bind(&BridgeCore::zeroPositionControlServiceCB_, this, _1, _2));
-
-        startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>(
-            "start_control", std::bind(&BridgeCore::startControlServiceCB_, this, _1, _2));
+        // start_control, ready_position_control, zero_position_control: createArmingServices_().
 
         estopDampService_ = nh->create_service<std_srvs::srv::Trigger>(
             "estop_damp", std::bind(&BridgeCore::estopDampServiceCB_, this, _1, _2));
@@ -58,6 +51,18 @@ namespace sairol_bridge
         publishBridgeState_(describeState_());
 
         last_state_time_ = nh->get_clock()->now();
+    }
+
+    void BridgeCore::createArmingServices_()
+    {
+        readyPositionService_ = nh->create_service<std_srvs::srv::Trigger>(
+            "ready_position_control", std::bind(&BridgeCore::readyPositionControlServiceCB_, this, _1, _2));
+
+        zeroPositionService_ = nh->create_service<std_srvs::srv::Trigger>(
+            "zero_position_control", std::bind(&BridgeCore::zeroPositionControlServiceCB_, this, _1, _2));
+
+        startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>(
+            "start_control", std::bind(&BridgeCore::startControlServiceCB_, this, _1, _2));
     }
 
     void BridgeCore::start()

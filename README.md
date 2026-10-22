@@ -37,6 +37,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | `checkMotorCmd_` using `std::abs` (upstream's bare `abs` truncated \|v\| < 1 to 0) | upstream | fixed here, behaviour change on the body path |
 | Config keymap headers advertising keys the source comments out | upstream | fixed here, no PR yet |
 | `start_control` answers `success: true` on a wrong length, then moves to `ready_q_` | upstream | fixed here: empty = `ready_q_`, any other wrong length refused |
+| Arming services exist during the startup waits, so a call made then arms later | upstream | fixed here: created after the waits, no PR yet |
 | G1 `_default_pos` is 27 long while kp/kd are 29 | upstream | **open**, `fix/g1-default-pos-29` |
 | `finishControl_` only logs on G1, H1, H1_2, so an abort holds at full gains | upstream | G1: fixed here by the e-stop latch (`docs/estop.md`); H1, H1_2: open |
 | G1 target gates: range clamp, speed limit, kp-0 torque window (`docs/psi0_gates.md`) | upstream | added here, no PR yet |
@@ -119,7 +120,9 @@ ros2 run robot_bridge G1_bridge --ros-args \
 Substitute `H1_bridge`, `H1_2_bridge` or `T1_bridge` and the matching config.
 The bridge starts in damping mode, and refuses to start while anything else
 publishes `/lowcmd`. `tools/g1-release-lowcmd.py --iface <nic>` frees it;
-`L2 + R2` on the controller does the same.
+`L2 + R2` on the controller does the same. On G1, H1 and H1_2,
+`/start_control`, `/ready_position_control` and `/zero_position_control` do not
+exist until then.
 
 ## 3. Launch a client
 

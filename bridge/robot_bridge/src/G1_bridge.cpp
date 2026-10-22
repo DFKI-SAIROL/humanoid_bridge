@@ -15,6 +15,8 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     lowStateSubscriber_ = nh->create_subscription<unitree_hg::msg::LowState>(
         "/lowstate", 1, std::bind(&sairol_bridge::G1Bridge::lowStateHandler_, this, std::placeholders::_1));
 
+    // Let discovery settle: checked too early, an existing /lowcmd publisher is missed and nothing waits.
+    rclcpp::sleep_for(std::chrono::seconds(1));
     while (!checkExternalPublisher_("/lowcmd"))
     {
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
@@ -29,6 +31,9 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
     }
+
+    // Here, not last: the hand block below returns early without hand parameters.
+    createArmingServices_();
 
     hands_[HAND_LEFT].name = "left";
     hands_[HAND_RIGHT].name = "right";

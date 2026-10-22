@@ -52,6 +52,10 @@ namespace sairol_bridge
 
         void robotCmdCallBack_(bridge_interface::msg::RobotCmd::SharedPtr message);
 
+        // Each robot bridge but X2 (which makes its own three) calls this after its wait
+        // loops: DDS stores a call made during the wait and runs it once spin starts.
+        void createArmingServices_();
+
         void readyPositionControl_();
         void zeroPositionControl_();
         void update_();

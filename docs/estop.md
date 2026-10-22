@@ -33,6 +33,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 - `estop.require_remote: true`: every arming service is refused unless the remote's header (`0x55 0x51`) arrived in the last 0.5 s. Measured 2026-10-20: remote off = all 40 bytes 0; at rest the bytes stay constant, so only the header counts. Remote lost while armed: open question.
 - Latched, `/lowstate` older than 1.2 s (0.2 s `state_loss` + 1 s): the latch goes silent and stays silent until reset (`LATCHED … silent`). A robot that restarts meanwhile runs its own motion service; old frames would fight it (2026-10-20).
 - G1 arming is also refused while any other program publishes `/lowcmd` (a restarted robot's motion service): release it first.
+- `/start_control`, `/ready_position_control`, `/zero_position_control` exist only after the startup waits (`/lowcmd` free, `/lowstate` up): DDS would store a call made during the wait and arm once the bridge spins.
 - Hands: a released hand whose state is gone for 1.2 s gets no more limp frames.
 - Arming moves the robot: `initControl_` ramps to the start pose over `duration` (2 s).
 - One entry point `enterStop_(cause)` for every trigger, any thread. It sets the state atomically, snapshots measured q under `mutex_`, then calls `finishControl_`.
@@ -125,7 +126,7 @@ estop:
 ## Code shape
 
 - `include/estop.hpp`, `src/estop.cpp`: no `rclcpp`. `SafetyLatch` (states, mode rules, reset rules), `buildStopFrame(...)`, `parseRemoteKeys(...)`.
-- `BridgeCore`: owns a `SafetyLatch` beside `controlStarted_` (tracking, now atomic); `enterStop_`; `armControl_` gates the arming services; `checkState_` returns the fault; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default.
+- `BridgeCore`: owns a `SafetyLatch` beside `controlStarted_` (tracking, now atomic); `enterStop_`; `armControl_` gates the arming services; each robot bridge creates the body ones with `createArmingServices_()` after its startup waits, except X2, which makes its own three there; `checkState_` returns the fault; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default.
 - `G1Bridge`: implements `publishStopCommand_`; remote parsing in `lowStateHandler_`, which now copies state under `mutex_`; `finishControl_` stays a log line.
 - `include/joint.hpp`: `Joint` moved out of `bridge_core.hpp` so the pure code needs no ROS.
 - `RobotCmdClient`: `estop_damp()`, `estop_hold()`, `estop_reset()`.
@@ -137,7 +138,7 @@ estop:
 | Level | What |
 |---|---|
 | `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss |
-| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `state_loss` → silent after 1.2 s. Not covered: `state_invalid` |
+| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | no `/start_control` while another node holds `/lowcmd` at start; both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `state_loss` → silent after 1.2 s. Not covered: `state_invalid` |
 | `tools/test.sh --wire` | GEAR's stream ends in a `cmd_timeout` hold |
 | gantry | G0–G6 below |
 
