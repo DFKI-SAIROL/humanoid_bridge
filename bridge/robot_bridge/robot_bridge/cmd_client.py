@@ -118,6 +118,7 @@ class RobotCmdClient:
         self.cmd_publisher = node.create_publisher(RobotCmd, topic, 1)
         self.start_control_client = node.create_client(SetDefaultPosition, "/start_control")
         self.stop_control_client = node.create_client(Trigger, "/stop_control")
+        self.ready_position_control_client = node.create_client(Trigger, "/ready_position_control")
         self.estop_damp_client = node.create_client(Trigger, "/estop_damp")
         self.estop_hold_client = node.create_client(Trigger, "/estop_hold")
         self.estop_reset_client = node.create_client(Trigger, "/estop_reset")
@@ -208,6 +209,10 @@ class RobotCmdClient:
     def stop_control(self, timeout_sec=5.0):
         """Hold the pose and drop /robot_cmd until start_control. Blocks on the bridge."""
         return self._call(self.stop_control_client, Trigger.Request(), timeout_sec)
+
+    def ready_position_control(self, timeout_sec=5.0):
+        """Ramp every joint to the config's ready_q; arms first if needed. Blocks on the bridge."""
+        return self._call(self.ready_position_control_client, Trigger.Request(), timeout_sec)
 
     def estop_damp(self, timeout_sec=5.0):
         """Latched e-stop, kp 0: arms sink slowly. Arming refused until estop_reset."""

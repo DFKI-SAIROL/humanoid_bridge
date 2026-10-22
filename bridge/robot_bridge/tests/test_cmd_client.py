@@ -1,4 +1,4 @@
-"""Pack-function tests. Builds messages only; no node, no bridge, no network."""
+"""Pack-function and service-call tests. A fake node at most; no bridge, no network."""
 
 import pytest
 
@@ -10,7 +10,10 @@ try:
 except ImportError:
     pytest.skip("source the colcon workspace first", allow_module_level=True)
 
-from robot_bridge.cmd_client import MOTOR_MODE, TOPIC, pack_robot_cmd  # noqa: E402
+from std_srvs.srv import Trigger  # noqa: E402
+
+from robot_bridge import cmd_client  # noqa: E402
+from robot_bridge.cmd_client import MOTOR_MODE, TOPIC, RobotCmdClient, pack_robot_cmd  # noqa: E402
 
 N = 29
 
@@ -89,3 +92,59 @@ def test_wire_contract_is_pinned():
         "duration": "double",
         "motor_cmd": "sequence<bridge_interface/MotorCmd>",
     }
+
+
+class _Future:
+    def __init__(self, result):
+        self._result = result
+
+    def done(self):
+        return True
+
+    def result(self):
+        return self._result
+
+
+class _ServiceClient:
+    def __init__(self, srv_name, up):
+        self.srv_name = srv_name
+        self.up = up
+        self.requests = []
+
+    def wait_for_service(self, timeout_sec=None):
+        return self.up
+
+    def call_async(self, request):
+        self.requests.append(request)
+        return _Future(f"reply from {self.srv_name}")
+
+
+class _Node:
+    def __init__(self, up=True):
+        self.up = up
+        self.clients = {}
+
+    def create_publisher(self, *args, **kwargs):
+        return object()
+
+    def create_client(self, srv_type, name):
+        self.clients[name] = _ServiceClient(name, self.up)
+        return self.clients[name]
+
+
+def test_ready_position_control_calls_its_service(monkeypatch):
+    monkeypatch.setattr(cmd_client.rclpy, "spin_until_future_complete", lambda *a, **k: None)
+    node = _Node()
+    client = RobotCmdClient(node, num_dof=N, control_frequency=50.0)
+
+    assert client.ready_position_control() == "reply from /ready_position_control"
+    requests = node.clients["/ready_position_control"].requests
+    assert len(requests) == 1 and isinstance(requests[0], Trigger.Request)
+
+
+def test_ready_position_control_without_the_bridge_raises_like_stop_control():
+    client = RobotCmdClient(_Node(up=False), num_dof=N, control_frequency=50.0)
+    with pytest.raises(RuntimeError, match="/stop_control is not available"):
+        client.stop_control(timeout_sec=0.0)
+    with pytest.raises(RuntimeError, match="/ready_position_control is not available"):
+        client.ready_position_control(timeout_sec=0.0)
