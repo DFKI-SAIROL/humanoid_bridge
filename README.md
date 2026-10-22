@@ -43,6 +43,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | G1 target gates: range clamp, speed limit, kp-0 torque window (`docs/psi0_gates.md`) | upstream | added here, no PR yet |
 | `start_control` keeps the last `/robot_cmd`'s dq and tau in its endless hold | upstream | G1: fixed here, no PR yet; H1, H1_2, T1, X2: open |
 | G1 arming needs the remote (`estop.require_remote`) | upstream | added here, no PR yet |
+| G1 `initControl_` resets the `/lowstate` age, so arming on a stalled state tracks it for 0.2 s | upstream | fixed here: arming refused on a state fault, no PR yet |
 | Two-layer split, `robot_bridge_py` -> `robot_bridge` rename | fork | this project's structure |
 | `robot_stacks/g1/` (`g1_stack`, `g1_camera`) | fork | whether it stays here is DFKI's call |
 | `tools/` | fork | build, test and bring-up helpers |

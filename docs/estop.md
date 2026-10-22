@@ -77,6 +77,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 
 - GEAR sends `duration 0.02`, no `hold_position`: a GEAR stall over 0.22 s latches `cmd_timeout`.
 - `/estop_reset` is refused while its cause is still present: state stale, IMU over threshold, NaN, or a combo still held.
+- Body arming (`start_control`, `ready`/`zero` while disarmed) is refused while `checkState_` reports a fault (state stale, NaN, `dq`, IMU); the reply names the cause, e.g. `robot state fault: state_loss`.
 - No remote reset: a reset combo can be hit while pressing buttons in a panic.
 
 ## Without a UI

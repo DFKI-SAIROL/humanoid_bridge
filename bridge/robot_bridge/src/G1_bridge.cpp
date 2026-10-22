@@ -287,8 +287,6 @@ void sairol_bridge::G1Bridge::publishLowCommand_()
 
 bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
-    last_state_time_ = nh->get_clock()->now();
-
     {
         // Gate 2 ramps from lastCommand_: all zeros at boot, which would pull every joint toward 0.
         std::lock_guard<std::mutex> lock(mutex_);

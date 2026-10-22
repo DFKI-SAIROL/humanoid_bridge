@@ -644,6 +644,13 @@ namespace sairol_bridge
             }
             generation = latch_.generation();
         }
+        // update_() would latch this fault at once; a stale /lowstate would first track a stale pose.
+        const estop::Cause fault = checkState_();
+        if (fault != estop::Cause::None)
+        {
+            why = std::string("robot state fault: ") + estop::name(fault);
+            return false;
+        }
         if (!remoteAllowsArming_(why) || !robotAllowsArming_(why))
         {
             return false;

@@ -83,8 +83,8 @@ namespace sairol_bridge
         // E-stop (docs/estop.md). Every stop goes through enterStop_, from any thread.
         bool loadEstopParameters_();
         void enterStop_(estop::Cause cause);
-        // The only way the arming services start control: refused while latched,
-        // and without the remote when estop.require_remote.
+        // The only way the arming services start control: refused while latched, on a
+        // checkState_ fault, and without the remote when estop.require_remote.
         bool armControl_(bridge_interface::msg::RobotCmd default_cmd, std::string &why);
         // False only when estop.require_remote and no remote header for REMOTE_TIMEOUT_S.
         bool remoteAllowsArming_(std::string &why);
