@@ -14,8 +14,7 @@ namespace sairol_bridge
         if (!loadParameters_())
         {
             RCLCPP_FATAL(nh->get_logger(), "Failed to load parameters.");
-            rclcpp::shutdown();
-            return;
+            throw ConfigError("Failed to load parameters.");
         }
 
         // distribute parameters
@@ -93,7 +92,12 @@ namespace sairol_bridge
             RCLCPP_ERROR(nh->get_logger(), "Failed to get 'torque_control' from parameters");
             return false;
         }
-        assert(torqueControl_ == false && "Torque control is not supported yet, please set 'torque_control' to false");
+        // Checks below return false, not assert: a Release build (NDEBUG) drops every assert.
+        if (torqueControl_)
+        {
+            RCLCPP_ERROR(nh->get_logger(), "Torque control is not supported yet, please set 'torque_control' to false");
+            return false;
+        }
         if (!nh->get_parameter("duration", duration_))
         {
             RCLCPP_ERROR(nh->get_logger(), "Failed to get 'duration' from parameters");
@@ -193,19 +197,35 @@ namespace sairol_bridge
                 ret = ret && nh->get_parameter(name + ".kd", joint_info.kd);
                 ret = ret && nh->get_parameter(name + ".if_strong_joint", joint_info.if_strong_joint);
                 ret = ret && nh->get_parameter(name + ".if_parallel_joint", joint_info.if_parallel_joint);
+                if (!ret)
+                {
+                    break;
+                }
+                // Every joint is read and written at its place in joint_names, never at idx.
+                if (joint_info.idx != static_cast<int>(joints_.size()))
+                {
+                    RCLCPP_ERROR(nh->get_logger(), "%s: idx %d, but it is joint_names[%zu]; they must match",
+                                 name.c_str(), joint_info.idx, joints_.size());
+                    return false;
+                }
+                if (!(joint_info.q_max >= joint_info.q_min) || !(joint_info.dq_limit >= 0) ||
+                    !(joint_info.tau_limit >= 0) || !(joint_info.kp >= 0) || !(joint_info.kd >= 0))
+                {
+                    RCLCPP_ERROR(nh->get_logger(), "%s: needs q_min <= q_max and dq_limit, tau_limit, kp, kd >= 0",
+                                 name.c_str());
+                    return false;
+                }
                 joints_.push_back(joint_info);
-                assert(joint_info.idx < numJoint_ && ("Joint index exceeds the number of joints, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.q_max >= joint_info.q_min && ("Joint q_max must be greater than or equal to q_min, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.dq_limit >= 0 && ("Joint dq_limit must be non-negative, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.tau_limit >= 0 && ("Joint tau_limit must be non-negative, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.kp >= 0 && ("Joint kp must be non-negative, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.kd >= 0 && ("Joint kd must be non-negative, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.if_strong_joint == true || joint_info.if_strong_joint == false && ("Joint if_strong_joint must be a boolean value, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
-                assert(joint_info.if_parallel_joint == true || joint_info.if_parallel_joint == false && ("Joint if_parallel_joint must be a boolean value, please check the joint index: " + std::to_string(joint_info.idx)).c_str());
             }
             if (!ret)
             {
                 RCLCPP_ERROR(nh->get_logger(), "Failed to get joint parameters from parameters");
+                return false;
+            }
+            if (joints_.size() != static_cast<size_t>(numJoint_))
+            {
+                RCLCPP_ERROR(nh->get_logger(), "joint_names has %zu joints, num_joint is %d",
+                             joints_.size(), numJoint_);
                 return false;
             }
             RCLCPP_INFO(nh->get_logger(), "Loaded %ld joint limits", joints_.size());
@@ -229,19 +249,31 @@ namespace sairol_bridge
         if (!nh->get_parameter("ready_q", ready_q_))
         {
             RCLCPP_ERROR(nh->get_logger(), "Failed to get 'ready_q' from parameters");
-            for (int i = 0; i < numJoint_; ++i)
-            {
-                assert(ready_q_[i] >= joints_[i].q_min && ready_q_[i] <= joints_[i].q_max &&
-                       ("Ready position must be within joint limits, please check the joint index: " + std::to_string(i)).c_str());
-            }
             return false;
         }
+        // Ready and arming read ready_q_[i] for every joint.
+        if (ready_q_.size() != static_cast<size_t>(numJoint_))
+        {
+            RCLCPP_ERROR(nh->get_logger(), "ready_q has %zu values, expected %d", ready_q_.size(), numJoint_);
+            return false;
+        }
+        for (int i = 0; i < numJoint_; ++i)
+        {
+            const float_t q = static_cast<float_t>(ready_q_[i]);   // as MotorCmd.q will hold it
+            if (!(q >= joints_[i].q_min && q <= joints_[i].q_max))
+            {
+                RCLCPP_ERROR(nh->get_logger(), "ready_q[%d] = %.4f is outside joint %d's range [%.4f, %.4f]",
+                             i, ready_q_[i], i, joints_[i].q_min, joints_[i].q_max);
+                return false;
+            }
+        }
 
-        assert(joints_.size() == numJoint_ && "Number of joints does not match the number of joint limits");
-        assert(upper_limbs_kp_max_ >= upper_limbs_kp_min_ && "Upper limbs kp max must be greater than or equal to min");
-        assert(upper_limbs_kd_max_ >= upper_limbs_kd_min_ && "Upper limbs kd max must be greater than or equal to min");
-        assert(lower_limbs_kp_max_ >= lower_limbs_kp_min_ && "Lower limbs kp max must be greater than or equal to min");
-        assert(lower_limbs_kd_max_ >= lower_limbs_kd_min_ && "Lower limbs kd max must be greater than or equal to min");
+        if (!(upper_limbs_kp_max_ >= upper_limbs_kp_min_) || !(upper_limbs_kd_max_ >= upper_limbs_kd_min_) ||
+            !(lower_limbs_kp_max_ >= lower_limbs_kp_min_) || !(lower_limbs_kd_max_ >= lower_limbs_kd_min_))
+        {
+            RCLCPP_ERROR(nh->get_logger(), "A gain range is inverted: every *_max must be >= its *_min");
+            return false;
+        }
         return loadEstopParameters_();
     }
 

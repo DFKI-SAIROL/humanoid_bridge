@@ -37,6 +37,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | `checkMotorCmd_` using `std::abs` (upstream's bare `abs` truncated \|v\| < 1 to 0) | upstream | fixed here, behaviour change on the body path |
 | State age and command timeout on the ROS clock: a backward wall-clock step blinds them | upstream | fixed here: one steady clock, no PR yet |
 | Config keymap headers advertising keys the source comments out | upstream | fixed here, no PR yet |
+| Config limits checked only by `assert` (gone under NDEBUG); `ready_q` length and range, joint `idx` never checked | upstream | fixed here: the load fails, no PR yet |
 | `start_control` answers `success: true` on a wrong length, then moves to `ready_q_` | upstream | fixed here: empty = `ready_q_`, any other wrong length refused |
 | Arming services exist during the startup waits, so a call made then arms later | upstream | fixed here: created after the waits, no PR yet |
 | G1 `_default_pos` is 27 long while kp/kd are 29 | upstream | **open**, `fix/g1-default-pos-29` |

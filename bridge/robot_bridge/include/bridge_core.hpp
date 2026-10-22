@@ -21,9 +21,16 @@
 #include <cmath>
 #include <algorithm>
 #include <cassert>
+#include <stdexcept>
 
 namespace sairol_bridge
 { 
+    // Thrown by BridgeCore's constructor when the parameters do not load; main() exits 1.
+    struct ConfigError : std::runtime_error
+    {
+        using std::runtime_error::runtime_error;
+    };
+
     struct CmdParams
     {
         float_t q_0{0}, q_1{0};

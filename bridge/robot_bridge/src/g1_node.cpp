@@ -21,8 +21,16 @@ int main(int argc, char **argv)
 
     std::shared_ptr<sairol_bridge::BridgeCore> bridge;
 
-    auto g1_bridge = std::make_shared<sairol_bridge::G1Bridge>(nh);
-    bridge = g1_bridge;
+    try
+    {
+        auto g1_bridge = std::make_shared<sairol_bridge::G1Bridge>(nh);
+        bridge = g1_bridge;
+    }
+    catch (const sairol_bridge::ConfigError &)   // logged: "Failed to load parameters."
+    {
+        rclcpp::shutdown();
+        return 1;
+    }
 
     if (bridge)
     {

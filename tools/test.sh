@@ -12,6 +12,7 @@
 #   estop  the real G1_bridge's e-stop against a fake robot
 #   gates  a fresh G1_bridge's target gates (range, speed, arming seed) against a fake robot
 #   hands  the real G1_bridge against fake Dex3 hands, per-side release
+#   config the real G1_bridge refuses broken copies of G1_config.yaml
 #
 # No stage touches hardware. Nothing here opens a real NIC: the DDS settings
 # below pin discovery to loopback, overriding any inherited CYCLONEDDS_URI.
@@ -29,6 +30,7 @@ RUN_WIRE=0
 RUN_ESTOP=0
 RUN_GATES=0
 RUN_HANDS=0
+RUN_CONFIG=0
 RMW_CHOICE="auto"
 STALE_AFTER="${STALE_AFTER:-}"
 PYTHON="${PYTHON:-python3}"
@@ -46,6 +48,7 @@ Options:
   --estop               e-stop integration test only
   --gates               target-gate integration test only
   --hands               hand-path integration test only
+  --config              broken-config refusal test only
   --rmw <impl>          cyclonedds | fastrtps | auto (default auto)
   --python <path>       interpreter for the unit stage (default python3, or $PYTHON)
   --stale-after <s>     hand stage: silence the left hand at <s> seconds to
@@ -68,6 +71,7 @@ while [ $# -gt 0 ]; do
         --estop) RUN_ESTOP=1 ;;
         --gates) RUN_GATES=1 ;;
         --hands) RUN_HANDS=1 ;;
+        --config) RUN_CONFIG=1 ;;
         --rmw)   RMW_CHOICE="${2:?--rmw needs cyclonedds, fastrtps or auto}"; shift ;;
         --python) PYTHON="${2:?--python needs an interpreter path}"; shift ;;
         --stale-after) STALE_AFTER="${2:?--stale-after needs seconds}"; shift ;;
@@ -77,8 +81,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_HANDS" = "000000" ]; then
-    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_GATES=1; RUN_HANDS=1
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_HANDS$RUN_CONFIG" = "0000000" ]; then
+    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_GATES=1; RUN_HANDS=1; RUN_CONFIG=1
 fi
 
 if [ -n "$STALE_AFTER" ] \
@@ -205,6 +209,9 @@ if [ "$RUN_HANDS" = 1 ]; then
     # run_fake_hand_test.sh reads STALE_AFTER from the environment.
     if [ -n "$STALE_AFTER" ]; then export STALE_AFTER; else unset STALE_AFTER; fi
     stage_integration hands "$INTEGRATION/run_fake_hand_test.sh"
+fi
+if [ "$RUN_CONFIG" = 1 ]; then
+    stage_integration config "$INTEGRATION/run_config_test.sh"
 fi
 
 echo
