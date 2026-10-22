@@ -40,6 +40,14 @@ Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
 - [ ] IMU trip: measure the standing tilt under GEAR and psi0 in the rehearsal, then lower `imu_rpy_threshold` from 1.0 to about 0.5.
   **Done when:** the new value is in `G1_config.yaml` and G6-IMU passes on the gantry with it.
 
+### GEAR on the robot
+
+- [ ] GEAR's robot mode sends waist pitch (motor 14) kd 5 − 10 = −5 (`decoupled_wbc` `configs.py:64-66`, in the pinned SIMPLE image); `adapters/gear_wbc.py` forwards it and the bridge clips it to 0 (`bridge_core.cpp:697-703`). **Done when:** the intended robot kd is known and `/robot_cmd` carries it for motor 14, checked with `ros2 topic echo /robot_cmd`.
+- [ ] GEAR waits forever for Dex3 state on a G1 without hands: `with_hands` defaults to True (`configs.py:108`); neither `g1_stack/nodes/gear_controller.py` nor the commander workspace passes `--no-with-hands`, and robot-mode `calibrate_hands` blocks with no timeout. **Done when:** a hand-less G1 run reaches "GEAR -> /robot_cmd at 50 Hz".
+
+- [ ] Dex3 finger gains: GEAR's hand sender (`decoupled_wbc` `command_sender.py:130-133`, forwarded by `adapters/gear_hands.py`) sends kp 2/1, kd 0.5/0.2; SIMPLE trains and evaluates with kp 5/2.5, kd 1 (`G1Sonic.apply_action`). A bridge try of psi0 `g1-xmovepick` (g1-pick-smoke ep 0) failed the grasp with GEAR's gains and succeeded in-process. **Done when:** the gains the real Dex3 needs are measured on the robot and the sim or the sender matches them.
+- [ ] Robot rehearsal on the real-robot branch, after both items above: the full G1 path (workspace `psi0` with a real-robot checkpoint → `psi0_gear_loop` → GEAR robot mode → G1_bridge) against `g1_sim` instead of the G1. Needs `g1_sim` to publish `rt/secondary_imu` and answer the motion switcher ("no mode"), the workspace's camera host and DDS interface from the commander's mode, and the multicast patch on `lo` for the loop node. **Done when:** a rehearsal from the page reaches GEAR's loop and moves `g1_sim` through the loop node.
+
 ### Gantry acceptance
 
 - [ ] Run the post-PR #7 acceptance test on the gantry: `docs/estop.md`, "Gantry acceptance, after PR #7". Then switch the robot's bridge to that build.

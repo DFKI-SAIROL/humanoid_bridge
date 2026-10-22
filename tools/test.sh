@@ -20,6 +20,8 @@
 #   hands  the real G1_bridge against fake Dex3 hands, three runs: plain, the left hand's
 #          state stops (hands-stale), the left hand overheats (hands-hot)
 #   config the real G1_bridge refuses broken copies of G1_config.yaml
+#   sim    opt-in (--sim), host only: the real G1_bridge against g1_sim (MuJoCo): arm,
+#          hold, /robot_cmd, remote damp
 #
 # No stage touches hardware. Nothing here opens a real NIC: the DDS settings
 # below pin discovery to loopback, overriding any inherited CYCLONEDDS_URI.
@@ -38,6 +40,7 @@ RUN_ESTOP=0
 RUN_GATES=0
 RUN_HANDS=0
 RUN_CONFIG=0
+RUN_SIM=0
 RMW_CHOICE="auto"
 STALE_AFTER="${STALE_AFTER:-3.5}"
 HOT_AFTER="${HOT_AFTER:-3.5}"
@@ -61,6 +64,8 @@ Options:
   --gates               target-gate integration test only
   --hands               hand-path integration test only
   --config              broken-config refusal test only
+  --sim                 G1_bridge against g1_sim only, not in the default set; needs g1_sim
+                        built and $G1_MJCF, so not with --docker
   --rmw <impl>          cyclonedds | fastrtps | auto (default auto)
   --python <path>       interpreter for the unit stage (default python3, or $PYTHON)
   --stale-after <s>     hands-stale run: the left hand's state stops <s> seconds after
@@ -91,6 +96,7 @@ while [ $# -gt 0 ]; do
         --gates) RUN_GATES=1 ;;
         --hands) RUN_HANDS=1 ;;
         --config) RUN_CONFIG=1 ;;
+        --sim)   RUN_SIM=1 ;;
         --rmw)   RMW_CHOICE="${2:?--rmw needs cyclonedds, fastrtps or auto}"; shift ;;
         --python) PYTHON="${2:?--python needs an interpreter path}"; shift ;;
         --stale-after) STALE_AFTER="${2:?--stale-after needs seconds}"; shift ;;
@@ -104,7 +110,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_HANDS$RUN_CONFIG" = "0000000" ]; then
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_HANDS$RUN_CONFIG$RUN_SIM" = "00000000" ]; then
     RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_GATES=1; RUN_HANDS=1; RUN_CONFIG=1
 fi
 
@@ -158,6 +164,10 @@ run_in_docker() {
             exec tools/test.sh "$@"' bash "${inner[@]}"
 }
 
+if [ "$DOCKER" = 1 ] && [ "$RUN_SIM" = 1 ]; then
+    echo "--sim runs on the host: the test image has no MuJoCo and no G1 model" >&2
+    exit 2
+fi
 if [ "$DOCKER" = 1 ]; then
     run_in_docker
 fi
@@ -327,6 +337,13 @@ if [ "$RUN_HANDS" = 1 ]; then
 fi
 if [ "$RUN_CONFIG" = 1 ]; then
     stage_integration config "$INTEGRATION/run_config_test.sh"
+fi
+if [ "$RUN_SIM" = 1 ]; then
+    if command -v ros2 >/dev/null && ! ros2 pkg prefix g1_sim >/dev/null 2>&1; then
+        record sim SKIP "g1_sim not in the sourced workspace; tools/build.sh"
+    else
+        stage_integration sim "$REPO/robot_stacks/g1/g1_sim/tests/integration/run_sim_bridge_test.sh"
+    fi
 fi
 
 echo

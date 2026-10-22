@@ -13,6 +13,8 @@
 # The bridge refuses a default_position that is not 29 long (empty = ready_q_);
 # this script checks the length first anyway. Arming also needs the remote on.
 #
+# Refuses while a g1_sim node is visible on the robot NIC (simulated /lowstate).
+#
 # Safe to re-run: with one G1_bridge already up it only arms; with two or more
 # it refuses (each writes /lowcmd). Only bridges in this network namespace
 # count: a test's bridge in its own namespace cannot reach the robot.
@@ -179,6 +181,16 @@ export BRIDGE_IFACE="$IFACE"
 source "$WS_CLONE/scripts/setup_unitree.sh" >/dev/null
 set -u
 say "workspace $WS, CycloneDDS on $IFACE"
+
+# --- a sim on the robot network? -------------------------------------------
+# Read-only, so also in --dry-run. A g1_sim here feeds G1_bridge simulated /lowstate.
+say "looking for a g1_sim node on $IFACE"
+if timeout 15 ros2 node list --no-daemon --spin-time 2 2>/dev/null | grep -qx /g1_sim; then
+    echo "refused: a g1_sim node is visible on $IFACE; G1_bridge would read simulated /lowstate." >&2
+    echo "Stop it. A sim runs with loopback DDS only (robot_stacks/g1/g1_sim/README.md)." >&2
+    exit 1
+fi
+echo "   none"
 
 # --- 0. already running? ---------------------------------------------------
 mapfile -t running < <(robot_bridges)

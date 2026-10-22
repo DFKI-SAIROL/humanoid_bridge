@@ -15,7 +15,7 @@ deploy layers stay independent of it.
 
 ```
 bridge/           upstream-bound: bridge_interface (msgs, srvs), robot_bridge (C++ + Python client)
-robot_stacks/     per-robot deploy layers; g1/ holds g1_stack and g1_camera
+robot_stacks/     per-robot deploy layers; g1/ holds g1_stack, g1_camera and g1_sim
 scripts/          environment setup, sourced not run
 thirdparty/       vendored unitree_ros2, booster_ros2_interface, aimdk_msgs
 ```
@@ -56,6 +56,7 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-10-22: a clean shutdown while ARMED latches damp (`shutdown`) and sends it for 1 s — PR #25 (B9)
 - 2026-10-22: the gate is `tools/test.sh --docker`; a stage that skips exits 2 unless `--allow-skip` — PR "chore: bridge codebase health" (BT12, BT1)
 - 2026-10-22: `camera_server` binds `--bind`, default the Jetson's 192.168.123.164, never 0.0.0.0 — same PR (B12b)
+- 2026-10-22: the G1 sim is an own MuJoCo node `g1_sim` on mjlab `g1.xml`, not GEAR's `base_sim` (needs rclpy the SIMPLE image lacks, no remote header, `mode_machine` 0, other model) — `robot_stacks/g1/g1_sim/README.md`
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 
 ## Roadmap
