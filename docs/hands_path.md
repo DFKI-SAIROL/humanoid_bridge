@@ -108,7 +108,9 @@ client.stop_hand_control()
 On both `RobotCmdClient` and `RobotClient`. There are no baked-in hand gains —
 pass them, or set them once with `set_default_hand_cmd()`. `start_hand_control`
 answers `success: false` when no hand is publishing state, and names any hand it
-skipped.
+skipped. Like body arming, it is refused on a body state fault (`checkState_`:
+IMU tilt past `imu_rpy_threshold`, stale or invalid `/lowstate`); the message
+names the cause, e.g. `robot state fault: imu`.
 
 `adapters/gear_hands.py` replaces GEAR's `HandCommandSender`; it does carry
 GEAR's own gains, because it is a drop-in and its caller passes none.
@@ -126,7 +128,8 @@ tools/test.sh --stale-after 3.5     # per-side release
 `start_hand_control`, so 3.0 to 4.0 lands mid-stream.
 
 `fake_dex3.py` publishes state at 100 Hz and records `/dex3/*/cmd`;
-`drive_hand_cmd.py` drives both hands through the adapter and then sends a
+`drive_hand_cmd.py` checks that `start_hand_control` is refused while another
+node publishes `/lowcmd` and while the body is tilted, drives both hands through the adapter and then sends a
 deliberately bad command; `check_hand_cmd.py` asserts the mode bits, the
 left/right split, the ramp, the clamps, a NaN rejection, and that the body
 stayed idle. `STALE_AFTER` silences the left hand mid-stream to exercise the

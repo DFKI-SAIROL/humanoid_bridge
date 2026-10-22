@@ -77,7 +77,7 @@ left the body idle.
 | `run_fake_estop_test.sh` | orchestrates the e-stop run |
 | `run_fake_wire_test.sh` | orchestrates the three, cleans up |
 | `fake_dex3.py` | publishes `/dex3/*/state` at 100 Hz, records `/dex3/*/cmd`; `--stale-after`, `--hot-after`, both timed from the first left command |
-| `drive_hand_cmd.py` | `start_hand_control`, then both hands through the hand adapter, then a bad command |
+| `drive_hand_cmd.py` | `start_hand_control` refused with another `/lowcmd` publisher and on a tilt, then accepted, then both hands through the hand adapter, then a bad command |
 | `check_hand_cmd.py` | asserts the hand recording; pure offline, needs no ROS |
 | `run_fake_hand_test.sh` | orchestrates the hand run |
 

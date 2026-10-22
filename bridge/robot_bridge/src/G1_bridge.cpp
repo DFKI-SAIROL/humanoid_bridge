@@ -793,7 +793,13 @@ void sairol_bridge::G1Bridge::startHandControlServiceCB_(
         return;
     }
     std::string why;
-    if (!remoteAllowsArming_(why))
+    // The body state rule of body arming: a tilted robot or a stale /lowstate starts no hand.
+    const estop::Cause fault = checkState_();
+    if (fault != estop::Cause::None)
+    {
+        why = std::string("robot state fault: ") + estop::name(fault);
+    }
+    if (!why.empty() || !remoteAllowsArming_(why) || !robotAllowsArming_(why))
     {
         response->success = false;
         response->message = why;

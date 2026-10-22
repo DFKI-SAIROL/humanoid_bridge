@@ -60,7 +60,7 @@ if ! grep -q "Dex3 hand path ready" "$OUT/bridge.log"; then
     grep -i hand "$OUT/bridge.log" | tail -20; exit 1
 fi
 
-python3 "$HERE/drive_hand_cmd.py" --send-over-limit --send-nan
+python3 "$HERE/drive_hand_cmd.py" --check-lowcmd-guard --check-tilt-guard --send-over-limit --send-nan
 
 sleep 1
 kill -TERM "$HAND_PID"; wait "$HAND_PID" 2>/dev/null || true; HAND_PID=""
