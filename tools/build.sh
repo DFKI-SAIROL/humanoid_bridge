@@ -98,6 +98,7 @@ if ! [ -d "/opt/ros/$ROS_DISTRO/share/rosidl_generator_dds_idl" ] \
 fi
 
 BOOSTER_T1=OFF
+CMAKE_ARGS=()
 if [ "$WITH_T1" = 1 ]; then
     BOOSTER_INCLUDE="${BOOSTER_INCLUDE:-$HOME/library/booster/include}"
     if [ ! -d "$BOOSTER_INCLUDE" ]; then
@@ -107,6 +108,7 @@ if [ "$WITH_T1" = 1 ]; then
         exit 1
     fi
     BOOSTER_T1=ON
+    CMAKE_ARGS+=("-DBOOSTER_INCLUDE_PATH=$BOOSTER_INCLUDE")
 fi
 
 # --- clean -----------------------------------------------------------------
@@ -123,7 +125,7 @@ done
 echo "workspace: $WORKSPACE"
 echo "BUILD_BOOSTER_T1=$BOOSTER_T1"
 cd "$WORKSPACE"
-colcon build --cmake-args "-DBUILD_BOOSTER_T1=$BOOSTER_T1" "$@"
+colcon build --cmake-args "-DBUILD_BOOSTER_T1=$BOOSTER_T1" ${CMAKE_ARGS+"${CMAKE_ARGS[@]}"} "$@"
 
 echo
 echo "done. Source it, then test:"

@@ -12,10 +12,13 @@ source /opt/ros/humble/setup.bash && tools/build.sh
 source <workspace>/install/setup.bash
 ```
 
+No ROS on the host: `tools/test.sh --docker [--wire|--estop|--gates|--hands|--config]`
+builds and runs them in a container.
+
 `robot_bridge`'s `package.xml` depends on `booster_interface` unconditionally,
 so it builds even with T1 off.
 
-`tools/test.sh` runs both scripts below and handles the DDS setting they need.
+`tools/test.sh` runs every `run_*.sh` below; each pins DDS to loopback (`loopback_dds.sh`).
 
 ## 1. Run
 
@@ -40,31 +43,35 @@ joint j lands on motor j     PASS  q[:3]=[0.01, 0.02, 0.03]
 kp from config               PASS
 kd from config               PASS
 bridge forced mode 1         PASS
-bridge forced PR mode        PASS
+bridge echoed mode_machine   PASS  5 wanted 5
 timeout latches hold         PASS  kp[0]=100.0 q[0]=0.0100
 ```
 
-E-stop, ends `all checks passed` (design: `docs/estop.md`):
+E-stop, target gates, broken configs; each driver ends `all checks passed`:
 
 ```bash
-tools/test.sh --estop
+tools/test.sh --estop      # docs/estop.md
+tools/test.sh --gates      # docs/psi0_gates.md
+tools/test.sh --config
 ```
 
 ## 3. The G1 hand path
 
 ```bash
-tools/test.sh --hands
-tools/test.sh --hands --stale-after 3.5
+tools/test.sh --hands                                   # hands, hands-stale, hands-hot
+tools/test.sh --hands --stale-after 3.9 --hot-after 3.2
 ```
 
-`--stale-after` silences the left hand mid-stream, to prove the release is
-per-side. The clock starts at the first `/dex3/left/cmd`, which is
-`start_hand_control`, so it must land between 3.0 and 4.0 s: earlier and the
-left hand never tracks, later and the driver has already stopped.
+`hands-stale` silences the left hand's state mid-stream, `hands-hot` reports it
+over temperature (`run_fake_hand_test.sh --stale-after|--hot-after <s>`, default
+3.5): either must release the left hand alone. The clock starts at the first
+`/dex3/left/cmd`, which is `start_hand_control`, so it must land between 3.0 and
+4.0 s: earlier and the left hand never tracks, later and the driver has already stopped.
 
 `fake_g1.py` runs too, because the bridge blocks in its constructor until
 something publishes `/lowstate`. That doubles as the check that the hand path
-left the body idle.
+left the body idle; the driver's closing `/lowcmd` probe (`mode_pr` 1) proves
+fake_g1 records `/lowcmd` at all.
 
 ## Parts
 
@@ -73,12 +80,16 @@ left the body idle.
 | `fake_g1.py` | publishes `/lowstate` at 500 Hz, records `/lowcmd`, tracks commands perfectly |
 | `drive_gear_wbc.py` | `start_control`, then 100 commands at 50 Hz through the adapter |
 | `check_lowcmd.py` | asserts the recording, exit 1 on failure |
-| `drive_estop.py` | starts before the bridge (handshake: `driver: holding /lowcmd`) and holds `/lowcmd` until the bridge log shows it was seen and no `/start_control` exists; then drives every e-stop path and checks `/lowcmd` and `/bridge_state` live; `fake_g1.py` takes `/fake_g1/keys` and `/fake_g1/roll` |
+| `drive_estop.py` | starts before the bridge (handshake: `driver: holding /lowcmd`) and holds `/lowcmd` until the bridge log shows it was seen and no `/start_control` exists; then drives every e-stop path and checks `/lowcmd` and `/bridge_state` live; `fake_g1.py` takes `/fake_g1/keys`, `/fake_g1/roll`, and bad joint-0 data `/fake_g1/nan_q`, `/fake_g1/dq`, `/fake_g1/nan_imu`; `drive_gates.py` uses `/fake_g1/freeze` (q stops tracking) |
 | `drive_shutdown.py` | runs last in the e-stop run: arms, SIGINTs the bridge's process group, checks damp frames for 1 s, then silence |
 | `run_fake_estop_test.sh` | orchestrates the e-stop run; then SIGINT to a second bridge in its `/lowcmd` wait: exit 0 within 5 s |
 | `run_fake_wire_test.sh` | orchestrates the three, cleans up |
+| `drive_gates.py` | gates 1, 2 and 4 of a fresh bridge against `fake_g1.py --start-q` |
+| `run_fake_gates_test.sh` | orchestrates the gate run, then `drive_no_estop_block.py` on a second bridge |
+| `loopback_dds.sh` | sourced by every `run_*.sh`: discovery on loopback only |
+| `harness.sh` | sourced by every `run_fake_*_test.sh`: paths, bridge start, cleanup, failure output |
 | `fake_dex3.py` | publishes `/dex3/*/state` at 100 Hz, records `/dex3/*/cmd`; `--stale-after`, `--hot-after`, both timed from the first left command |
-| `drive_hand_cmd.py` | `start_hand_control` refused with another `/lowcmd` publisher and on a tilt, then accepted, then both hands through the hand adapter, then a bad command |
+| `drive_hand_cmd.py` | `start_hand_control` refused with another `/lowcmd` publisher and on a tilt, then accepted, then both hands through the hand adapter, then an over-limit and a NaN command, then (`--check-estop`) `/estop_damp` mid-stream with both hands live, then a `/lowcmd` probe; `--phases` writes the NaN phase's times |
 | `check_hand_cmd.py` | asserts the hand recording; pure offline, needs no ROS |
 | `run_fake_hand_test.sh` | orchestrates the hand run |
 | `run_config_test.sh`, `drive_config.py` | `G1_bridge` on broken copies of `G1_config.yaml` (`ready_q` short or out of range, `idx` out of order, inverted limits): each must fail its parameter load. No fake robot |
@@ -86,6 +97,11 @@ left the body idle.
 
 ## What breaks it
 
+- `step ramps at <= v rad/s FAIL  max 2·v`: a lost `/lowcmd` frame, since speed
+  is the step between received frames over `control_dt`. Re-run; a steady 2·v is the bridge.
+- `the sourced robot_bridge is older than bridge/...` or `was built from <path>,
+  not this clone`: `tools/test.sh` refuses to test another build. Rebuild
+  (`tools/build.sh`) and source that workspace, or use `--docker`.
 - `Detected 1 publishers on /lowcmd`: an orphaned `G1_bridge` from an earlier
   run. `pkill -9 -x G1_bridge`. The script starts the bridge with `setsid` and
   kills the process group, because `ros2 run` is a launcher and killing it

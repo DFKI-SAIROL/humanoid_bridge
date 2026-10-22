@@ -1,0 +1,18 @@
+# ROS 2 Humble for `tools/test.sh --docker`: every stage on a host without ROS.
+# Python deps as tools/install-build-deps.sh; pip with --no-deps keeps apt's numpy, which ROS is built against.
+FROM docker.io/library/ros:humble-ros-base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-colcon-common-extensions \
+        python3-msgpack \
+        python3-numpy \
+        python3-pip \
+        python3-pytest \
+        python3-yaml \
+        python3-zmq \
+        ros-humble-rmw-cyclonedds-cpp \
+        ros-humble-rosidl-generator-dds-idl \
+    && pip3 install --no-cache-dir --no-deps msgpack-numpy==0.4.8 opencv-python-headless==4.10.0.84 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp

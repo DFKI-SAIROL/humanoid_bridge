@@ -62,6 +62,35 @@ TEST(Rate, PsiZeroFirstTargetBecomesARamp)
     EXPECT_NEAR(ticks, 1.0 / 3.0 * 1000, 2);   // 1.0 rad at 3 rad/s
 }
 
+TEST(Rate, EveryTickOfARampStepsExactlyRateTimesDt)
+{
+    // Up and down, arm and default rate: each full tick is rate·dt, the last one lands on the target.
+    for (const float_t rate : {3.0f, 6.0f})
+    {
+        for (const float_t target : {-0.8f, 1.2f})
+        {
+            float_t q = 0.2f;
+            int full = 0;
+            for (int tick = 0; tick < 10000 && std::fabs(target - q) > 1e-6f; ++tick)
+            {
+                const float_t next = limitTarget(target, q, elbow(rate), DT);
+                if (std::fabs(target - q) > rate * DT)
+                {
+                    EXPECT_NEAR(std::fabs(next - q), rate * DT, 1e-6) << "rate " << rate << " tick " << tick;
+                    ++full;
+                }
+                else
+                {
+                    EXPECT_NEAR(next, target, 1e-6) << "rate " << rate;
+                }
+                q = next;
+            }
+            // 1.0 rad: 333 full ticks at 3 rad/s, 166 at 6, then one short tick.
+            EXPECT_EQ(full, static_cast<int>(1.0f / (rate * DT))) << "rate " << rate;
+        }
+    }
+}
+
 TEST(Rate, OutOfRangeTargetRampsToTheLimit)
 {
     float_t q = 2.0f;
@@ -102,6 +131,17 @@ TEST(Window, FeedforwardCountsAgainstTheLimit)
             EXPECT_LE(std::fabs(total), 25.0f + 1e-3f) << "tau " << tau << ", target " << target;
         }
     }
+}
+
+TEST(Window, KdBiasShiftsTheWindowByKdTimesDqError)
+{
+    // kp·(q - q_meas) + kd·(dq_cmd - dq_meas) <= 25 at tau 0: bias kd·(dq_meas - dq_cmd) = ±10 Nm.
+    EXPECT_FLOAT_EQ(torqueWindow(2.0f, 0.0f, 5.0f, 0.0f, 50.0f, 2.0f, 0.0f, 25.0f), 0.7f);
+    EXPECT_FLOAT_EQ(torqueWindow(-2.0f, 0.0f, 5.0f, 0.0f, 50.0f, 2.0f, 0.0f, 25.0f), -0.3f);
+    EXPECT_FLOAT_EQ(torqueWindow(2.0f, 0.0f, 0.0f, 5.0f, 50.0f, 2.0f, 0.0f, 25.0f), 0.3f);
+    EXPECT_FLOAT_EQ(torqueWindow(-2.0f, 0.0f, 0.0f, 5.0f, 50.0f, 2.0f, 0.0f, 25.0f), -0.7f);
+    // Equal speeds: no bias, whatever they are.
+    EXPECT_FLOAT_EQ(torqueWindow(2.0f, 0.0f, 5.0f, 5.0f, 50.0f, 2.0f, 0.0f, 25.0f), 0.5f);
 }
 
 TEST(Window, ZeroKpGivesTheMeasuredPose)

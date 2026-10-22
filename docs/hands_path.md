@@ -73,19 +73,19 @@ untouched, so older configs and the H1 still work.
 
 | | Body | Hand |
 |---|---|---|
-| state freshness | 0.2 s, aborts control | per side, releases that hand |
-| state NaN/Inf, `dq` limit | yes | yes, plus a temperature ceiling |
+| state freshness | 0.2 s, latches `damp state_loss` | per side, releases that hand |
+| state NaN/Inf, `dq` limit | latches `damp state_invalid` | yes, plus a temperature ceiling |
 | cmd size | 29 or reject | 7 or reject |
 | cmd NaN/Inf, absurd magnitude | reject | reject |
 | `kp`/`kd` | clamped by strong/weak class | clamped by `hand_kp_*`/`hand_kd_*` |
 | `q` | torque-implied bound in `publishLowCommand_` | clamped to `[q_min, q_max]` |
-| watchdog | `duration + 0.2 s`, then holds last pose | `duration + 0.2 s`, then limp |
+| watchdog | `duration + 0.2 s`, then latches `hold cmd_timeout` | `duration + 0.2 s`, then limp |
 
 `BridgeCore::checkMotorCmd_` is the shared per-motor half; both loops call it.
 
-A release is `kp = kd = 0`, deliberately unlike the body's hold-last-pose: a
-hand here holds nothing critical, and limp cannot cook a stalled finger. See the
-open `finishControl_` question in `PROJECT_STATUS.md`.
+Body modes per cause: `estop.mode` in `G1_config.yaml` (`docs/estop.md`). A hand
+release is `kp = kd = 0`, unlike the body's `hold` on a command timeout: a hand
+here holds nothing critical, and limp cannot cook a stalled finger.
 
 A released hand keeps getting explicit limp frames. `stop_hand_control` instead
 goes silent and lets the mode's timeout bit release the fingers.
@@ -120,20 +120,25 @@ GEAR's own gains, because it is a drop-in and its caller passes none.
 Hands are not mounted, so all of this is verified against a fake only.
 
 ```bash
-tools/test.sh                       # unit, body path (8 checks), hand path
-tools/test.sh --stale-after 3.5     # per-side release
+tools/test.sh --hands               # plain, hands-stale, hands-hot runs
+tools/test.sh --hands --stale-after 3.9 --hot-after 3.2
 ```
 
-`--stale-after` counts from the first `/dex3/left/cmd`, which is
+The hand stage runs three times: plain; the left hand's state stops at
+`--stale-after`; it reports over temperature at `--hot-after` (both default
+3.5 s). Both count from the first `/dex3/left/cmd`, which is
 `start_hand_control`, so 3.0 to 4.0 lands mid-stream.
 
 `fake_dex3.py` publishes state at 100 Hz and records `/dex3/*/cmd`;
 `drive_hand_cmd.py` checks that `start_hand_control` is refused while another
 node publishes `/lowcmd` and while the body is tilted, drives both hands through the adapter and then sends a
 deliberately bad command; `check_hand_cmd.py` asserts the mode bits, the
-left/right split, the ramp, the clamps, a NaN rejection, and that the body
-stayed idle. `STALE_AFTER` silences the left hand mid-stream to exercise the
-per-side release.
+left/right split, the ramp, the clamps, that NaN commands leave the last good
+target in force, and that the body stayed idle (a `/lowcmd` probe proves the
+fake records). The plain run then re-arms both hands and checks that
+`/estop_damp` mid-stream sends both limp frames and refuses `start_hand_control`.
+The stale and hot runs check that only the left hand releases; a hot hand keeps
+getting limp frames.
 
 ## What breaks it
 
@@ -144,8 +149,10 @@ per-side release.
 - **`unitree_hg/HandCmd.motor_cmd` is an unbounded sequence**, unlike
   `LowCmd`'s fixed `[35]`. It must be resized to 7 before indexing, or nothing
   is published.
-- **Commanding one hand releases the other**, because the topics are
-  independent and each has its own watchdog.
+- **Each hand has its own watchdog.** After `start_hand_control` a hand holds
+  its ready pose until its first command; once its commands stop it goes limp
+  `duration + 0.2 s` later, unless `hold_position`. Commanding one hand leaves
+  the other alone.
 - **Every run ends with both hands limp.** The watchdog fires once the driver
   stops, so a recording's last frame has zero gains — assert against the last
   *commanded* frame, not the last frame.

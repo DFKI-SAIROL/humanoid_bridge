@@ -36,6 +36,7 @@ def load_params(path):
         "kd": [float(params[n]["kd"]) for n in names],
         "damp_kd": float(params["estop"]["damp_kd"]),
         "ready_q": [float(v) for v in params["ready_q"]],
+        "dq_limit": [float(params[n]["dq_limit"]) for n in names],
         "parallel": [bool(params[n].get("if_parallel_joint", False)) for n in names],
     }
 
@@ -52,6 +53,9 @@ class Driver:
         self.roll = node.create_publisher(Float32, "/fake_g1/roll", 10)
         self.remote = node.create_publisher(Bool, "/fake_g1/remote", 10)
         self.pause = node.create_publisher(Bool, "/fake_g1/pause", 10)
+        self.nan_q = node.create_publisher(Bool, "/fake_g1/nan_q", 10)
+        self.dq = node.create_publisher(Float32, "/fake_g1/dq", 10)
+        self.nan_imu = node.create_publisher(Bool, "/fake_g1/nan_imu", 10)
         # Up before the bridge starts: the bridge waits until it is gone.
         self.blocker = node.create_publisher(LowCmd, "/lowcmd", 10)
         latched = QoSProfile(
@@ -98,6 +102,7 @@ class Driver:
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             inputs = (self.keys, self.roll, self.remote, self.pause)
+            inputs += (self.nan_q, self.dq, self.nan_imu)
             if all(p.get_subscription_count() for p in inputs):
                 return True
             rclpy.spin_once(self.node, timeout_sec=0.01)
@@ -109,6 +114,19 @@ class Driver:
             if self.state == wanted:
                 return True
             rclpy.spin_once(self.node, timeout_sec=0.005)
+        return False
+
+    def drain(self, quiet=0.1, timeout=2.0):
+        """Spin until no /lowcmd frame for `quiet` s; False if frames go on for `timeout` s."""
+        end = time.monotonic() + timeout
+        seen, last = self.count, time.monotonic()
+        while time.monotonic() < end:
+            rclpy.spin_once(self.node, timeout_sec=0.005)
+            now = time.monotonic()
+            if self.count != seen:
+                seen, last = self.count, now
+            elif now - last >= quiet:
+                return True
         return False
 
     def wait_log(self, text, timeout):
@@ -445,14 +463,52 @@ class Driver:
         self.spin(0.3)
         self.check("frames go on right after the loss", self.count > count, f"{self.count - count}")
         self.check_state("silent 1.2 s after the loss", "LATCHED damp remote_damp silent")
+        # /bridge_state is taken first: frames sent before the latch can still be queued.
+        before = self.count
+        quiet = self.drain()
         count = self.count
         self.spin(0.5)
-        self.check("silent latch publishes nothing", self.count == count, f"{self.count - count}")
+        detail = f"{self.count - count} after {count - before} drained"
+        detail += "" if quiet else ", no 0.1 s gap in 2 s"
+        self.check("silent latch publishes nothing", quiet and self.count == count, detail)
         self.pause.publish(Bool(data=False))
         self.spin(0.5)
         self.check("estop_reset once /lowstate is back", self.client.estop_reset().success)
         self.check_state("reset from silent -> DISARMED", "DISARMED")
+        self.bad_state(damp_kp, damp_kd)
         self.check_recording()
+
+    def bad_state(self, damp_kp, damp_kd):
+        """Bad robot data while ARMED latches damp state_invalid; reset once it is gone."""
+        limit = self.params["dq_limit"][0]
+        self.check("start_control at 0.2", self.start(0.2).success)
+        self.spin(RAMP_SECONDS)
+        self.check_state("ARMED", "ARMED")
+        self.dq.publish(Float32(data=0.9 * limit))
+        self.spin(0.3)
+        under = self.state == "ARMED"
+        self.check("joint 0 at 0.9 dq_limit stays ARMED", under, f"state '{self.state}'")
+        self.dq.publish(Float32(data=0.0))
+        faults = (
+            ("NaN q", self.nan_q, Bool(data=True), Bool(data=False)),
+            ("joint 0 at 1.1 dq_limit", self.dq, Float32(data=1.1 * limit), Float32(data=0.0)),
+            ("NaN IMU roll", self.nan_imu, Bool(data=True), Bool(data=False)),
+        )
+        for i, (name, publisher, on, off) in enumerate(faults):
+            if i:
+                self.check(f"{name}: re-arm", self.start(0.2).success)
+                self.spin(RAMP_SECONDS)
+                self.check_state(f"{name}: ARMED", "ARMED")
+            publisher.publish(on)
+            self.check_state(f"{name} latches damp state_invalid", "LATCHED damp state_invalid")
+            self.spin(0.2)
+            self.check(f"{name}: damp frame", *self.frame(damp_kp, damp_kd))
+            refused = not self.client.estop_reset().success
+            self.check(f"{name}: reset refused while it lasts", refused)
+            publisher.publish(off)
+            self.spin(0.3)
+            self.check(f"{name}: reset once it is gone", self.client.estop_reset().success)
+            self.check_state(f"{name}: reset -> STOPPED damp", "STOPPED damp state_invalid")
 
     def check_recording(self):
         """Every frame, not only the last: a damp latch has kp 0, a hold never moves."""

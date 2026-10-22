@@ -1,9 +1,8 @@
-# remote control:
+# remote control, robot_client.py only (the bridge's key subscription is commented out):
 # start control: LT + RT + START
-# stop control: back
-# Ready position: LB
-# Zero position: RB
-# Emergency stop: LT + BACK
+# stop control: BACK
+# ready position: LB, zero position: RB (not while the client is in control)
+# LT + BACK: the client stops its own commands
 
 
 robot_bridge:

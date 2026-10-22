@@ -2,6 +2,9 @@
 
 Serves JPEG frames on a ZMQ REP socket; see wire.py for the contract.
 
+Both listen on `--bind` only, default the Jetson's robot-network address
+(`wire.DEFAULT_HOST`), not on every interface.
+
 `--preview-port` adds a stdlib HTTP view of the same frames: `/frame.jpg` and
 `/health`. It answers from the cache while that is younger than `--max-age`, so
 a preview open during a run faster than that touches neither the camera nor the
@@ -24,7 +27,7 @@ class CameraServer:
     """Serves JPEG frames on a ZMQ REP socket, in a background thread.
 
     `source` is any callable returning a BGR array, so this can be exercised
-    without a camera.
+    without a camera. `bind` is the one address both sockets listen on.
 
     With `preview_port` set it also serves the same frames over HTTP, from a
     cache that is only refilled once it is older than `max_age_s`. The REP path
@@ -45,6 +48,7 @@ class CameraServer:
         max_age_s=0.2,
         source_name=None,
         clock=time.monotonic,
+        bind=wire.DEFAULT_HOST,
     ):
         self._zmq = zmq_module or __import__("zmq")
         self._source = source if source is not None else V4L2Source()
@@ -52,15 +56,16 @@ class CameraServer:
         self._clock = clock
         self.max_age_s = max_age_s
         self.source_name = source_name or _source_name(self._source)
+        self.bind = bind
 
         self._ctx = self._zmq.Context.instance()
         self._socket = self._ctx.socket(self._zmq.REP)
         requested = wire.DEFAULT_PORT if port is None else port
         # port 0 asks the OS for a free one, so tests never collide.
         self.port = (
-            self._socket.bind_to_random_port("tcp://0.0.0.0")
+            self._socket.bind_to_random_port(f"tcp://{bind}")
             if requested == 0
-            else (self._socket.bind(f"tcp://0.0.0.0:{requested}"), requested)[1]
+            else (self._socket.bind(f"tcp://{bind}:{requested}"), requested)[1]
         )
 
         self._stop = threading.Event()
@@ -82,7 +87,7 @@ class CameraServer:
 
     def _bind_preview(self, port):
         """Bind now so `preview_port` is known before `start`, as the REP port is."""
-        self._preview = ThreadingHTTPServer(("0.0.0.0", port), _PreviewHandler)
+        self._preview = ThreadingHTTPServer((self.bind, port), _PreviewHandler)
         self._preview.camera = self
         self.preview_port = self._preview.server_address[1]
         self._preview_thread = threading.Thread(
@@ -213,8 +218,14 @@ def _encode_jpeg(bgr):
     return buffer.tobytes()
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--bind",
+        default=wire.DEFAULT_HOST,
+        help="the address to listen on (default: %(default)s, the Jetson on the robot network; "
+        "0.0.0.0 is every interface)",
+    )
     parser.add_argument("--port", type=int, default=wire.DEFAULT_PORT)
     parser.add_argument(
         "--source",
@@ -255,7 +266,11 @@ def main():
     parser.add_argument(
         "--list", action="store_true", help="print what each /dev/videoN is, and exit"
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main():
+    args = parse_args()
 
     if args.list:
         for name, description in list_devices():
@@ -277,10 +292,11 @@ def main():
         source_name=origin,
         preview_port=None if args.no_preview else args.preview_port,
         max_age_s=args.max_age,
+        bind=args.bind,
     ).start()
-    print(f"camera server on tcp://0.0.0.0:{server.port} from {origin}; ctrl-c to stop")
+    print(f"camera server on tcp://{args.bind}:{server.port} from {origin}; ctrl-c to stop")
     if server.preview_port is not None:
-        print(f"preview on http://0.0.0.0:{server.preview_port}/frame.jpg and /health")
+        print(f"preview on http://{args.bind}:{server.preview_port}/frame.jpg and /health")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

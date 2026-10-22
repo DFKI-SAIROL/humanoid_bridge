@@ -85,6 +85,10 @@ while [ $# -gt 0 ]; do
 done
 
 say()  { printf '== %s\n' "$*"; }
+BRIDGE_LOG=""
+log_hint() {   # the bridge runs detached: its output is only in the log
+    if [ -n "$BRIDGE_LOG" ] && [ "$DRY_RUN" != 1 ]; then echo "   bridge log: tail -f $BRIDGE_LOG"; fi
+}
 run()  { if [ "$DRY_RUN" = 1 ]; then printf '   '; printf '%q ' "$@"; printf '\n'; else "$@"; fi; }
 
 MY_NETNS="$(readlink /proc/self/ns/net)"
@@ -186,6 +190,8 @@ if [ "${#running[@]}" -gt 1 ]; then
 fi
 if [ "${#running[@]}" -eq 1 ]; then
     say "G1_bridge already runs (pid ${running[0]}): no release, no second bridge"
+    log="$(readlink "/proc/${running[0]}/fd/1" 2>/dev/null || true)"
+    if [ -f "$log" ]; then BRIDGE_LOG="$log"; fi
     echo "   restart it: $0 --stop, then run this again"
 else
     # --- 1. release /lowcmd ------------------------------------------------
@@ -247,6 +253,7 @@ fi
 if [ -z "$ARM_MODE" ]; then
     say "not arming. The bridge drops every /robot_cmd until start_control is called"
     echo "   arm with: $0 --arm-from-measured --robot-is-clear"
+    log_hint
     exit 0
 fi
 
@@ -274,3 +281,4 @@ fi
 echo
 echo "success=false: latched (/estop_reset), the remote is off, or a wrong length."
 echo "The first /robot_cmd cuts the ramp short, so arm before a client streams."
+log_hint

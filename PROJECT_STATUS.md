@@ -48,6 +48,14 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-10-22: upstream syncs land as merge commits, never rebase or squash, so upstream commit IDs stay and later syncs and upstream PRs stay simple — PR "Merge DFKI-SAIROL/humanoid_bridge main"
 - 2026-10-22: `BridgeCore::checkState_` calls upstream's virtual `checkStateFreshness_` for state loss; the X2 overrides it, the G1 path is unchanged — same PR
 - 2026-10-22: another `/lowcmd` sender while ARMED latches damp (`other_lowcmd`) and the bridge keeps sending damp frames, not silence: silence would hand the robot to an unknown sender and disable the remote e-stop combos; revisit after the gantry measurement (roadmap) — PR "fix(bridge): latch damp when another program sends /lowcmd (B11b)"
+- 2026-10-22: start_control, ready and zero services exist only after the bridge's start-up waits; e-stop, stop and reset exist at once — PR #10 (X3)
+- 2026-10-22: Ready and Zero count as arming: they run the remote and `/lowcmd` checks — PR #13 (B2)
+- 2026-10-22: safety timers run on the steady clock; message headers keep wall time — PR #16 (B5)
+- 2026-10-22: G1 `estop.require_remote` defaults to true; turn it off only in a sim-only params file — PR #26 (B11a)
+- 2026-10-22: parameters are read-only at run time; `start_control` refuses `default_kp`/`default_kd` — PRs #23, #22 (B11d, B11c)
+- 2026-10-22: a clean shutdown while ARMED latches damp (`shutdown`) and sends it for 1 s — PR #25 (B9)
+- 2026-10-22: the gate is `tools/test.sh --docker`; a stage that skips exits 2 unless `--allow-skip` — PR "chore: bridge codebase health" (BT12, BT1)
+- 2026-10-22: `camera_server` binds `--bind`, default the Jetson's 192.168.123.164, never 0.0.0.0 — same PR (B12b)
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 
 ## Roadmap

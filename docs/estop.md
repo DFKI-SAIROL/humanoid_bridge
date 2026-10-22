@@ -130,7 +130,7 @@ estop:
 
 ## Code shape
 
-- `include/estop.hpp`, `src/estop.cpp`: no `rclcpp`. `SafetyLatch` (states, mode rules, reset rules), `buildStopFrame(...)`, `parseRemoteKeys(...)`.
+- `include/estop.hpp`, `src/estop.cpp`: no `rclcpp`. `SafetyLatch` (states, mode rules, reset rules), `stopFrame(...)`, `remoteKeys(...)`, `remoteHeader(...)`, `parseCombo(...)`.
 - `BridgeCore`: owns a `SafetyLatch` beside `controlStarted_` (tracking, now atomic); `enterStop_`; `armControl_` gates the arming services (ready/zero while `ARMED` run its remote and `/lowcmd` checks themselves); each robot bridge creates the body ones with `createArmingServices_()` after its startup waits, except X2, which makes its own three there; `checkState_` returns the fault; new services `/estop_damp`, `/estop_hold`, `/estop_reset`; virtual `publishStopCommand_()` with an empty default.
 - `G1Bridge`: implements `publishStopCommand_`; remote parsing in `lowStateHandler_`, which now copies state under `mutex_`; `finishControl_` stays a log line.
 - `include/joint.hpp`: `Joint` moved out of `bridge_core.hpp` so the pure code needs no ROS.
@@ -142,9 +142,11 @@ estop:
 
 | Level | What |
 |---|---|
-| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss; shutdown damps and is final |
-| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | no `/start_control` while another node holds `/lowcmd` at start; both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `state_loss` → silent after 1.2 s; then `drive_shutdown.py`: SIGINT while armed → damp for 1 s, then silent. Not covered: `state_invalid` |
+| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss; shutdown damps and is final; `other_lowcmd` latches damp over hold |
+| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | no `/start_control` while another node holds `/lowcmd` at start; both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `ros2 param set` on a joint gain refused, value kept; another `/lowcmd` publisher while armed latches `damp other_lowcmd` within 1.5 s, reset refused while it is there; re-arm after a command with dq and tau: every frame has dq 0 and tau 0 (`initControl_`); `state_loss` → silent after 1.2 s; a NaN q, a joint over its `dq_limit` (0.9× stays armed) and a NaN IMU each latch `damp state_invalid` from `ARMED`, reset refused while present; then `drive_shutdown.py`: SIGINT while armed → damp for 1 s, then silent |
 | `tools/test.sh --wire` | GEAR's stream ends in a `cmd_timeout` hold |
+| `tools/test.sh --gates`: `drive_no_estop_block.py` | a config without `estop:` still refuses arming without the remote |
+| `tools/test.sh --hands`: `drive_hand_cmd.py --check-estop` | `/estop_damp` mid-stream: both hands get limp frames (kp, kd 0) while commands still arrive; `start_hand_control` refused while latched |
 | gantry | G0–G6 below |
 
 Gantry, robot hanging, operator on the remote:

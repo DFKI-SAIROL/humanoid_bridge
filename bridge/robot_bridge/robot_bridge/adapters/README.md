@@ -36,7 +36,7 @@ from robot_bridge.adapters.gear_wbc import install
 
 rclpy.init()
 node = rclpy.create_node("gear_wbc_bridge")
-client = RobotCmdClient(node, num_dof=29, control_frequency=50.0)
+client = RobotCmdClient(node, num_dof=29, control_frequency=50.0, interpolation_order=0.0)
 install(client)  # before building the env
 ```
 

@@ -1,7 +1,7 @@
-# remote control (only the key below is handled in the source):
-# stop control: L2 + UP + LEFT
-# start control, ready position and zero position are services only:
-#   /start_control, /ready_position_control, /zero_position_control
+# remote control:
+# stop control: L2 + UP + LEFT (the bridge, from /wirelesscontroller)
+# start control: L2 + START (robot_client.py, calls /start_control)
+# ready and zero position are services only: /ready_position_control, /zero_position_control
 
 robot_bridge:
   ros__parameters:

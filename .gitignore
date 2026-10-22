@@ -46,3 +46,21 @@ __pycache__/
 *.log
 *.tmp
 *.~*
+
+# Added from the repo-scaffold baseline (common, Python, ROS 2 bags)
+Thumbs.db
+*.swo
+*~
+.env
+.env.*
+!.env.example
+*.py[cod]
+dist/
+venv/
+.mypy_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
+*.db3
+*.mcap

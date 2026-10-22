@@ -87,9 +87,18 @@ namespace sairol_bridge
 
         cmdParams_ = std::vector<CmdParams>(numJoint_);
 
-        if (!nh->get_parameter("torque_control", torqueControl_))
+        // A required key: false and one error naming it when missing.
+        const auto require = [this](const char *key, auto &value)
         {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'torque_control' from parameters");
+            if (nh->get_parameter(key, value))
+            {
+                return true;
+            }
+            RCLCPP_ERROR(nh->get_logger(), "Failed to get '%s' from parameters", key);
+            return false;
+        };
+        if (!require("torque_control", torqueControl_))
+        {
             return false;
         }
         // Checks below return false, not assert: a Release build (NDEBUG) drops every assert.
@@ -98,64 +107,19 @@ namespace sairol_bridge
             RCLCPP_ERROR(nh->get_logger(), "Torque control is not supported yet, please set 'torque_control' to false");
             return false;
         }
-        if (!nh->get_parameter("duration", duration_))
+        if (!require("duration", duration_) ||
+            !require("control_dt", controlDt_) ||
+            !require("upper_limbs_kp_min", upper_limbs_kp_min_) ||
+            !require("upper_limbs_kp_max", upper_limbs_kp_max_) ||
+            !require("upper_limbs_kd_min", upper_limbs_kd_min_) ||
+            !require("upper_limbs_kd_max", upper_limbs_kd_max_) ||
+            !require("lower_limbs_kp_min", lower_limbs_kp_min_) ||
+            !require("lower_limbs_kp_max", lower_limbs_kp_max_) ||
+            !require("lower_limbs_kd_min", lower_limbs_kd_min_) ||
+            !require("lower_limbs_kd_max", lower_limbs_kd_max_) ||
+            !require("empty_joint_index", emptyJointIndex_) ||
+            !require("imu_rpy_threshold", imu_rpy_threshold_))
         {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'duration' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("control_dt", controlDt_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'control_dt' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("upper_limbs_kp_min", upper_limbs_kp_min_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'upper_limbs_kp_min' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("upper_limbs_kp_max", upper_limbs_kp_max_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'upper_limbs_kp_max' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("upper_limbs_kd_min", upper_limbs_kd_min_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'upper_limbs_kd_min' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("upper_limbs_kd_max", upper_limbs_kd_max_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'upper_limbs_kd_max' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("lower_limbs_kp_min", lower_limbs_kp_min_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'lower_limbs_kp_min' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("lower_limbs_kp_max", lower_limbs_kp_max_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'lower_limbs_kp_max' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("lower_limbs_kd_min", lower_limbs_kd_min_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'lower_limbs_kd_min' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("lower_limbs_kd_max", lower_limbs_kd_max_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'lower_limbs_kd_max' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("empty_joint_index", emptyJointIndex_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'empty_joint_index' from parameters");
-            return false;
-        }
-        if (!nh->get_parameter("imu_rpy_threshold", imu_rpy_threshold_))
-        {
-            RCLCPP_ERROR(nh->get_logger(), "Failed to get 'imu_rpy_threshold' from parameters");
             return false;
         }
 
@@ -380,21 +344,19 @@ namespace sairol_bridge
 
     void BridgeCore::zeroPositionControl_()
     {
-        for (int i = 0; i < numJoint_; ++i)
-        {
-            lowCommandDesired_.motor_cmd[i].q = 0.0;
-            lowCommandDesired_.motor_cmd[i].dq = 0.0;
-            lowCommandDesired_.motor_cmd[i].tau = 0.0;
-            lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
-            lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
-        }
+        setPose_(std::vector<double>(numJoint_, 0.0));
     }
 
     void BridgeCore::readyPositionControl_()
     {
+        setPose_(ready_q_);
+    }
+
+    void BridgeCore::setPose_(const std::vector<double> &q)
+    {
         for (int i = 0; i < numJoint_; ++i)
         {
-            lowCommandDesired_.motor_cmd[i].q = ready_q_[i];
+            lowCommandDesired_.motor_cmd[i].q = q[i];
             lowCommandDesired_.motor_cmd[i].dq = 0.0;
             lowCommandDesired_.motor_cmd[i].tau = 0.0;
             lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
@@ -893,27 +855,18 @@ namespace sairol_bridge
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
-        std::string why;
-        // Moves every joint, so it counts as arming even while tracking.
-        const bool allowed = controlStarted_ ? remoteAllowsArming_(why) && robotAllowsArming_(why)
-                                             : armControl_(bridge_interface::msg::RobotCmd(), why);
-        if (!allowed)
-        {
-            RCLCPP_WARN(nh->get_logger(), "Ready position refused: %s", why.c_str());
-            response->success = false;
-            response->message = why;
-            return;
-        }
-        readyPositionControl_();
-        calculateInterpolationParams_(duration_, 1, true);
-        RCLCPP_INFO(nh->get_logger(), "Ready position control activated");
-        response->success = true;
-        response->message = "Ready position control activated";
+        movePose_("Ready", ready_q_, response);
     }
 
     void BridgeCore::zeroPositionControlServiceCB_(
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+    {
+        movePose_("Zero", std::vector<double>(numJoint_, 0.0), response);
+    }
+
+    void BridgeCore::movePose_(const std::string &name, const std::vector<double> &q,
+                               std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
         std::string why;
         // Moves every joint, so it counts as arming even while tracking.
@@ -921,16 +874,16 @@ namespace sairol_bridge
                                              : armControl_(bridge_interface::msg::RobotCmd(), why);
         if (!allowed)
         {
-            RCLCPP_WARN(nh->get_logger(), "Zero position refused: %s", why.c_str());
+            RCLCPP_WARN(nh->get_logger(), "%s position refused: %s", name.c_str(), why.c_str());
             response->success = false;
             response->message = why;
             return;
         }
-        zeroPositionControl_();
+        setPose_(q);
         calculateInterpolationParams_(duration_, 1, true);
-        RCLCPP_INFO(nh->get_logger(), "Zero position control activated");
+        RCLCPP_INFO(nh->get_logger(), "%s position control activated", name.c_str());
         response->success = true;
-        response->message = "Zero position control activated";
+        response->message = name + " position control activated";
     }
 
     void BridgeCore::startControlServiceCB_(

@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 
-from drive_hand_cmd import CONTROL_HZ, NUM_HAND_JOINTS, fingerprint
+from drive_hand_cmd import CONTROL_HZ, NUM_HAND_JOINTS, OVER_LIMIT, fingerprint
 
 HAND_HZ = 100.0  # hand_control_dt: 0.01 in G1_config.yaml
 RAMP_SECONDS = 2.0  # `duration` in G1_config.yaml
@@ -17,6 +17,10 @@ SIDES = ("left", "right")
 # release has to be separated from the end-of-run one by more than that; the rest
 # is margin, not a claim about how big the gap should be.
 MIN_EARLY_RELEASE_GAP = 0.3
+
+# Frames checked while the NaN commands arrive: from the first one's effect to
+# just past the last, still inside the last good command's watchdog.
+NAN_WINDOW = (0.02, 0.05)
 
 # hand_kp_max / hand_kd_max in G1_config.yaml.
 KP_MAX = 10.0
@@ -65,6 +69,10 @@ def is_limp(sample):
     return all(v == 0.0 for v in sample["kp"]) and all(v == 0.0 for v in sample["kd"])
 
 
+def close(a, b, tol=1e-3):
+    return all(abs(x - y) < tol for x, y in zip(a, b))
+
+
 def last_live(samples):
     """The last commanded frame. Every run ends limp -- the driver stops streaming
     a second before the fake dumps, so the watchdog releases both hands -- and
@@ -76,9 +84,14 @@ def last_live(samples):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("samples")
-    parser.add_argument("--expect-nan-dropped", action="store_true")
+    parser.add_argument(
+        "--expect-nan-dropped", metavar="PHASES", help="drive_hand_cmd.py --phases output"
+    )
     parser.add_argument("--expect-clamped", action="store_true")
-    parser.add_argument("--expect-left-released", action="store_true")
+    parser.add_argument(
+        "--expect-left-released", action="store_true", help="fake_dex3 --stale-after"
+    )
+    parser.add_argument("--expect-left-hot", action="store_true", help="fake_dex3 --hot-after")
     args = parser.parse_args()
 
     with open(args.samples) as handle:
@@ -177,30 +190,53 @@ def main():
         )
 
     if args.expect_clamped:
-        last = last_live(recorded["right"])
+        # Not the last live frame: drive_hand_cmd --check-estop streams after the over-limit one.
+        live = [s for s in recorded["right"] if not is_limp(s)]
+        clamped = [hi for _, hi in Q_RANGE["right"]]
+        at_max = [s for s in live if close(s["q"], clamped)]
         check(
             "an out-of-range q was clamped, not dropped",
-            last is not None
-            and in_range("right", last["q"])
-            and any(abs(v) > 0.5 for v in last["q"]),
-            "q={}".format([round(v, 3) for v in last["q"]] if last else "no live frames"),
+            bool(at_max) and all(in_range("right", s["q"]) for s in live),
+            f"{len(at_max)} live frames at q_max={[round(v, 3) for v in clamped]}",
         )
 
     if args.expect_nan_dropped:
         right = recorded["right"]
+        check("no NaN reached the wire", all(all(v == v for v in s["q"]) for s in right))
+        # The over-limit command, clamped, is the last good one before the NaN commands.
+        with open(args.expect_nan_dropped) as handle:
+            start, end = json.load(handle)["nan"]
+        clamped = [hi for _, hi in Q_RANGE["right"]]
+        _, kp, kd = OVER_LIMIT
+        frames = [
+            s
+            for s in right
+            if start + NAN_WINDOW[0] <= recorded["t0"] + s["t"] <= end + NAN_WINDOW[1]
+        ]
+        kept = all(
+            close(s["q"], clamped)
+            and close(s["kp"], [kp] * NUM_HAND_JOINTS)
+            and close(s["kd"], [kd] * NUM_HAND_JOINTS)
+            for s in frames
+        )
         check(
-            "a NaN command was dropped whole",
-            all(all(v == v for v in s["q"]) for s in right),
-            "the last good command must stay in force",
+            "NaN commands left the last good target",
+            len(frames) >= 0.05 * CONTROL_HZ and kept,
+            "{} frames while they arrived, {}".format(
+                len(frames), "all at the clamped target" if kept else "changed"
+            ),
         )
 
-    if args.expect_left_released:
+    for wanted, cause in ((args.expect_left_released, "stale"), (args.expect_left_hot, "hot")):
+        if not wanted:
+            continue
         # Both hands end limp on every run, so "left went limp" proves nothing on
         # its own. What per-side release means is that the left stopped being
         # commanded well before the right did.
-        left_live, right_live = last_live(recorded["left"]), last_live(recorded["right"])
+        left, right = recorded["left"], recorded["right"]
+        left_live, right_live = last_live(left), last_live(right)
         check(
-            "a stale left hand released early",
+            f"a {cause} left hand released early",
             left_live is not None
             and right_live is not None
             and right_live["t"] - left_live["t"] > MIN_EARLY_RELEASE_GAP,
@@ -212,12 +248,25 @@ def main():
         check(
             "the right hand kept going",
             right_live is not None and any(v > 0.0 for v in right_live["kp"]),
-            "per-side release: a silent left hand must not drop the right",
+            f"per-side release: a {cause} left hand must not drop the right",
         )
         check(
             "the released left hand went slack",
-            all(is_limp(s) for s in recorded["left"][-5:]),
+            all(is_limp(s) for s in left[-5:]),
         )
+        if cause == "hot":
+            # Its state still arrives, so it gets limp frames, not silence, while the right works.
+            after = [s for s in left if left_live is not None and s["t"] > left_live["t"]]
+            check(
+                "the hot left hand stays limp, not silent",
+                bool(after)
+                and all(is_limp(s) for s in after)
+                and right_live is not None
+                and after[-1]["t"] >= right_live["t"],
+                "{} limp frames, the last at {}".format(
+                    len(after), after[-1]["t"] if after else "never"
+                ),
+            )
 
     if failures:
         print("\n{} check(s) failed: {}".format(len(failures), ", ".join(failures)))

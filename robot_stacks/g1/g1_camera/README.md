@@ -32,10 +32,15 @@ On the workstation it also builds with the workspace: `colcon build
 ## 2. Run the server
 
 ```bash
-camera_server                          # videohub, 640x480, preview on :5557
+camera_server                          # videohub, 640x480, preview on :5557, both on 192.168.123.164
 camera_server --source v4l2 --list     # which /dev/videoN is which
 camera_server --width 1280 --height 720
 ```
+
+Both sockets listen on `--bind` only: default `192.168.123.164`, the Jetson's
+robot-network address, so the clients on `192.168.123.0/24` reach it as before
+and no other interface (Wi-Fi) does. `--bind 0.0.0.0` is the old every-interface
+behaviour.
 
 ## 3. Read frames
 
@@ -49,11 +54,14 @@ rgb = client.read_rgb()  # (height, width, 3) uint8, RGB
 ## 4. Verify
 
 ```bash
-pytest robot_stacks/g1/g1_camera/tests/    # 20 tests, no camera
+pytest robot_stacks/g1/g1_camera/tests/    # 22 tests, no camera, on 127.0.0.1
 fake_camera_server                          # stand-in on the wire
 ```
 
 ## What breaks it
+
+- **`Cannot assign requested address` at start** → this host has no
+  `192.168.123.164`, so it is not the Jetson. Pass `--bind <its address>`.
 
 - **Frames are greyscale** → that is `/dev/video2`, the infrared node. Use
   `--source videohub`, the default, for colour.

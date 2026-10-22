@@ -1,7 +1,7 @@
-# remote control:
-# start control: L2 + START
-# stop control: L2 + UP + LEFT
-# Ready / zero position: /ready_position_control, /zero_position_control
+# remote control, robot_client.py only (the bridge's key subscription is commented out):
+# start control: L2 + START (calls /start_control)
+# L2 + UP + LEFT: the client stops its own commands
+# stop, ready, zero position: /stop_control, /ready_position_control, /zero_position_control
 
 robot_bridge:
   ros__parameters:

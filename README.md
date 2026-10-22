@@ -154,18 +154,19 @@ CMakeLists builds or installs them.
 Between start and policy inference, lower the robot until its feet touch the
 ground.
 
-Only the keys below reach the bridge. Everything commented out in the source is
-listed as "service only", so use the service call instead.
+Keys by handler. Client: `robot_bridge/robot_client.py`, which every example
+uses; it calls the service. Service only: no code handles a key.
 
 | | Start control | Stop control | Ready position | Zero position |
 |---|---|---|---|---|
-| G1 | service only | service only (holds) | service only | service only |
-| H1 | `L2 + Start` | `L2 + Up + Left` | `L1` | `R1` |
-| H1_2 | service only | `L2 + Up + Left` | service only | service only |
-| T1 | `LT + RT + Start` | `Back` | `LB` | `RB` |
+| G1 | `L2 + Start` (client) | service only (holds) | service only | service only |
+| H1 | `L2 + Start` (client) | service only | service only | service only |
+| H1_2 | `L2 + Start` (client) | `L2 + Up + Left` (bridge, `/wirelesscontroller`) | service only | service only |
+| T1 | `LT + RT + Start` (client) | `Back` (client) | `LB` (client, not while in control) | `RB` (client, not while in control) |
 
-T1 also shuts the node down on `LT + Back`. `R2 + A` starts Unitree's own
-policy, not anything here.
+- `L2 + Up + Left` (G1, H1, H1_2) and `LT + Back` (T1): the client stops its own commands; no service call.
+- `T1_bridge` and `H1_bridge` have key handlers, but their subscriptions are commented out.
+- `R2 + A` (G1, H1) and `LT + A` (T1): the example starts its policy once control is on. Firmware combos: `docs/estop.md`.
 
 G1 e-stop, latched until `/estop_reset` (`docs/estop.md`): `L1 + R1` damp,
 `R1 + R2` hold. Do not use `L2 + Up`: it is the firmware's lock-stand combo.
@@ -198,13 +199,20 @@ ros2 service call /stop_hand_control std_srvs/srv/Trigger {}
 
 ## 5. Verify
 
-No hardware. Stages that cannot run are skipped with the reason.
+No hardware. Stages that cannot run are skipped with the reason, and the run
+exits 2 (`--allow-skip`: 0). A failed stage exits 1. Every stage but unit fails
+on a sourced `robot_bridge` built from another clone or before the newest file
+under `bridge/`: rebuild and source again.
 
 ```bash
-tools/test.sh                       # unit, then body wire, then hands
+tools/test.sh --docker              # every stage in a ROS 2 Humble container; needs only docker
+tools/test.sh                       # the same on a sourced workspace
 tools/test.sh --unit                # needs no ROS
-tools/test.sh --stale-after 3.5     # per-side hand release
+tools/test.sh --hands --stale-after 3.9   # move the left hand's stale release (3.0 to 4.0)
 ```
+
+`--docker` builds `tools/Dockerfile.test` once (`--rebuild` again), then this
+clone into `~/.cache/humanoid_bridge/test_ws-<cksum>`, network off.
 
 The unit count depends on the environment: without a sourced workspace the
 tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.

@@ -1,7 +1,7 @@
 """The Unitree DDS transport the joint states arrive on.
 
 - body joints: `unitree_hg/LowState` on `rt/lowstate`;
-- Dex3 hands: `rt/dex3/{left,right}/state`, which the bridge never touches.
+- Dex3 hands: `rt/dex3/{left,right}/state`, read raw; the G1 bridge's hand path reads it too.
 
 Read through `unitree_sdk2py` rather than rclpy: the Jetson's ROS 2 workspace
 has no `unitree_hg` Python message package, which is why `ros2 topic echo

@@ -18,6 +18,8 @@ from g1_camera import (
     synthetic_rgb,
 )
 
+LOOPBACK = "127.0.0.1"  # never the robot network, never every interface
+
 
 def _decode(payload):
     """JPEG bytes to BGR, as VideoHubSource does internally."""
@@ -33,7 +35,7 @@ def bgr_frame(seed=3):
 
 @pytest.fixture
 def pair():
-    server = CameraServer(port=0, source=bgr_frame).start()
+    server = CameraServer(bind=LOOPBACK, port=0, source=bgr_frame).start()
     client = CameraClient(host="127.0.0.1", port=server.port, timeout_ms=3000)
     yield server, client
     client.close()
@@ -164,7 +166,7 @@ def test_videohub_source_raises_on_an_undecodable_payload():
 def test_the_server_serves_videohub_frames_through_the_real_client():
     """The whole path with videohub behind it, over ZMQ, no camera."""
     source = VideoHubSource(client=FakeVideoClient(0, hd_jpeg()))
-    server = CameraServer(port=0, source=source).start()
+    server = CameraServer(bind=LOOPBACK, port=0, source=source).start()
     client = CameraClient(host="127.0.0.1", port=server.port, timeout_ms=3000)
     try:
         rgb = client.read_rgb()
@@ -225,7 +227,7 @@ def _get(server, path):
 def preview():
     source = CountingSource()
     clock = FakeClock()
-    server = CameraServer(port=0, source=source, preview_port=0, clock=clock).start()
+    server = CameraServer(bind=LOOPBACK, port=0, source=source, preview_port=0, clock=clock).start()
     yield server, source, clock
     server.stop()
 
@@ -282,7 +284,7 @@ def test_a_failed_refill_still_serves_the_stale_frame(preview):
 
 
 def test_no_frame_and_a_failing_grab_is_a_503():
-    server = CameraServer(port=0, source=_broken, preview_port=0).start()
+    server = CameraServer(bind=LOOPBACK, port=0, source=_broken, preview_port=0).start()
     try:
         status, _, body = _get(server, "/frame.jpg")
         assert status == 503
@@ -317,7 +319,7 @@ def test_an_unknown_path_is_a_404(preview):
 
 
 def test_the_preview_is_off_unless_a_port_is_given():
-    server = CameraServer(port=0, source=bgr_frame).start()
+    server = CameraServer(bind=LOOPBACK, port=0, source=bgr_frame).start()
     try:
         assert server.preview_port is None
     finally:
@@ -326,4 +328,23 @@ def test_the_preview_is_off_unless_a_port_is_given():
 
 def test_stop_does_not_hang_on_a_preview_that_never_started():
     """shutdown() blocks forever if serve_forever was never entered."""
-    CameraServer(port=0, source=bgr_frame, preview_port=0).stop()
+    CameraServer(bind=LOOPBACK, port=0, source=bgr_frame, preview_port=0).stop()
+
+
+def test_the_server_listens_on_the_bind_address_only():
+    import zmq
+
+    server = CameraServer(bind=LOOPBACK, port=0, source=bgr_frame, preview_port=0)
+    try:
+        endpoint = server._socket.getsockopt(zmq.LAST_ENDPOINT).decode()
+        assert endpoint == f"tcp://{LOOPBACK}:{server.port}"
+        assert server._preview.server_address[0] == LOOPBACK
+    finally:
+        server.stop()
+
+
+def test_the_cli_binds_the_jetson_robot_address_by_default():
+    from g1_camera import server, wire
+
+    assert server.parse_args([]).bind == wire.DEFAULT_HOST
+    assert server.parse_args(["--bind", "0.0.0.0"]).bind == "0.0.0.0"

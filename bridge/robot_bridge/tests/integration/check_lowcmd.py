@@ -5,6 +5,7 @@ import json
 import sys
 
 from drive_gear_wbc import RAMP_DEFAULT, fingerprint, load_config
+from fake_g1 import MODE_MACHINE
 
 BRIDGE_HZ = 1000.0  # control_dt: 0.001 in G1_config.yaml
 RAMP_SECONDS = 2.0  # `duration` in G1_config.yaml
@@ -71,7 +72,12 @@ def main():
     check("kp from config", all(abs(a - b) < 1e-3 for a, b in zip(last["kp"], config["MOTOR_KP"])))
     check("kd from config", all(abs(a - b) < 1e-3 for a, b in zip(last["kd"], config["MOTOR_KD"])))
     check("bridge forced mode 1", set(last["mode"]) == {1})
-    check("bridge forced PR mode", last["mode_pr"] == 0)
+    # Not mode_pr: PR is 0, the field's default, so that check passed with or without the bridge.
+    check(
+        "bridge echoed mode_machine",
+        last["mode_machine"] == MODE_MACHINE,
+        "{} wanted {}".format(last["mode_machine"], MODE_MACHINE),
+    )
 
     if args.params:
         tail = samples[-1]

@@ -104,7 +104,8 @@ class FakeDex3(Node):
 
     def dump(self):
         with open(self.out_path, "w") as handle:
-            json.dump(self.samples, handle)
+            # t0: time.monotonic() at sample t 0, to line samples up with a driver's phases.
+            json.dump({"t0": self.t0, **self.samples}, handle)
         counts = ", ".join(f"{side}={len(self.samples[side])}" for side in SIDES)
         print(f"fake_dex3: wrote /dex3/*/cmd samples ({counts})", flush=True)
 
