@@ -17,9 +17,14 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
 
     // Let discovery settle: checked too early, an existing /lowcmd publisher is missed and nothing waits.
     rclcpp::sleep_for(std::chrono::seconds(1));
-    while (!checkExternalPublisher_("/lowcmd"))
+    // rclcpp::ok(): after Ctrl-C the graph calls throw, and the bridge aborted. main() then skips spin.
+    while (rclcpp::ok() && !checkExternalPublisher_("/lowcmd"))
     {
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
+    }
+    if (!rclcpp::ok())
+    {
+        return;
     }
 
     lowCommandPublisher_ = nh->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 10); // /joint_ctrl
@@ -27,9 +32,13 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     // Waiting for publisher on topic lowstate
     RCLCPP_INFO(nh->get_logger(), "Waiting for publisher on topic /lowstate...");
 
-    while (nh->count_publishers("/lowstate") == 0)
+    while (rclcpp::ok() && nh->count_publishers("/lowstate") == 0)
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (!rclcpp::ok())
+    {
+        return;
     }
 
     // Here, not last: the hand block below returns early without hand parameters.

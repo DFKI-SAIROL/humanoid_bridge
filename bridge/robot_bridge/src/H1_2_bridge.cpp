@@ -17,17 +17,26 @@ sairol_bridge::H1_2Bridge::H1_2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore
 
     // Let discovery settle: checked too early, an existing /lowcmd publisher is missed and nothing waits.
     rclcpp::sleep_for(std::chrono::seconds(1));
-    while (!checkExternalPublisher_("/lowcmd"))
+    // rclcpp::ok(): after Ctrl-C the graph calls throw, and the bridge aborted. main() then skips spin.
+    while (rclcpp::ok() && !checkExternalPublisher_("/lowcmd"))
     {
         rclcpp::sleep_for(std::chrono::milliseconds(1000));
+    }
+    if (!rclcpp::ok())
+    {
+        return;
     }
 
     lowCommandPublisher_ = nh->create_publisher<unitree_hg::msg::LowCmd>("/lowcmd", 10);
 
     RCLCPP_INFO(nh->get_logger(), "Waiting for publisher on topic /lowstate...");
-    while (nh->count_publishers("/lowstate") == 0)
+    while (rclcpp::ok() && nh->count_publishers("/lowstate") == 0)
     {
         rclcpp::sleep_for(std::chrono::milliseconds(100));
+    }
+    if (!rclcpp::ok())
+    {
+        return;
     }
 
     createArmingServices_();
