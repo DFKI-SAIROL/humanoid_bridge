@@ -283,22 +283,28 @@ endif()
 
 
 # ==============================================================test node cmake==============================================================================
-add_executable(test_node src/test.cpp)
-target_include_directories(test_node PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-ament_target_dependencies(test_node
- rclcpp 
- std_msgs
- std_srvs
- unitree_go
- bridge_interface
- )
+# OFF by default: test_node streams a 23-motor (T1) /robot_cmd at 500 Hz; started by mistake
+# beside a bridge, it is an outside /robot_cmd publisher.
+option(BUILD_TEST_NODE "Build and install test_node" OFF)
 
-install(TARGETS
-  test_node
-  DESTINATION lib/${PROJECT_NAME}
-)
+if(BUILD_TEST_NODE)
+  add_executable(test_node src/test.cpp)
+  target_include_directories(test_node PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  ament_target_dependencies(test_node
+   rclcpp 
+   std_msgs
+   std_srvs
+   unitree_go
+   bridge_interface
+   )
+
+  install(TARGETS
+    test_node
+    DESTINATION lib/${PROJECT_NAME}
+  )
+endif()
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

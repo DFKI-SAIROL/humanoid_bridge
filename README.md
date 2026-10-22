@@ -21,7 +21,7 @@ thirdparty/       vendored unitree_ros2, booster_ros2_interface and aimdk_msgs (
 lets either layer be split out with `git subtree split --prefix=<layer>`.
 
 Built targets are `G1_bridge`, `H1_bridge`, `H1_2_bridge`, `T1_bridge`,
-`X2_bridge` (only with `-DBUILD_AGIBOT_X2=ON`) and `test_node`. Other sources under `src/` are upstream leftovers that no target
+`X2_bridge` (only with `-DBUILD_AGIBOT_X2=ON`) and `test_node` (only with `-DBUILD_TEST_NODE=ON`). Other sources under `src/` are upstream leftovers that no target
 builds.
 
 ## Fork or upstream
@@ -50,6 +50,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | `start_control` keeps the last `/robot_cmd`'s dq and tau in its endless hold | upstream | G1: fixed here, no PR yet; H1, H1_2, T1, X2: open |
 | G1 arming needs the remote (`estop.require_remote`) | upstream | added here, no PR yet |
 | G1 `initControl_` resets the `/lowstate` age, so arming on a stalled state tracks it for 0.2 s | upstream | fixed here: arming refused on a state fault, no PR yet |
+| `test_node` (a 23-motor `/robot_cmd` at 500 Hz) built and installed by default | upstream | fixed here: only with `-DBUILD_TEST_NODE=ON`, no PR yet; an existing workspace keeps it until `tools/build.sh --clean robot_bridge` |
 | Two-layer split, `robot_bridge_py` -> `robot_bridge` rename | fork | this project's structure |
 | `robot_stacks/g1/` (`g1_stack`, `g1_camera`) | fork | whether it stays here is DFKI's call |
 | `tools/` | fork | build, test and bring-up helpers |
