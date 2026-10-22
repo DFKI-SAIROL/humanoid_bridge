@@ -81,6 +81,8 @@ private:
     void lowStateHandler_(unitree_hg::msg::LowState::SharedPtr message);
     bool initControl_(bridge_interface::msg::RobotCmd default_cmd) override;
     void finishControl_() override;
+    // Before the context shuts down (SIGINT, SIGTERM): damp frames for SHUTDOWN_DAMP_S, not silence at once.
+    void dampBeforeShutdown_();
     bool checkExternalPublisher_(std::string topic_name);
     // Refused while anything besides this bridge publishes /lowcmd (a restarted robot's motion service).
     bool robotAllowsArming_(std::string &why) override;

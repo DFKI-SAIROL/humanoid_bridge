@@ -73,3 +73,9 @@ if [ "$RC" != 0 ]; then
     printf '%-44s FAIL  exit %s\n' "SIGINT in the /lowcmd wait exits" "$RC"; tail -5 "$OUT/second.log"; exit 1
 fi
 printf '%-44s PASS\n' "SIGINT in the /lowcmd wait exits"
+
+# Last: SIGINT while armed, so the bridge does not survive it.
+echo; echo "=== shutdown ==="
+if ! python3 "$HERE/drive_shutdown.py" "$PARAMS" "$BRIDGE_PID" "$OUT/bridge.log"; then
+    echo; echo "bridge log, last 30 lines:"; tail -30 "$OUT/bridge.log"; exit 1
+fi

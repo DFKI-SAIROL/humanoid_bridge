@@ -46,6 +46,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | Any host can `ros2 param set /robot_bridge`: the bridge ignores it, live readers do not | upstream | G1: fixed here: every change refused, no PR yet |
 | G1 `_default_pos` is 27 long while kp/kd are 29 | upstream | **open**, `fix/g1-default-pos-29` |
 | `finishControl_` only logs on G1, H1, H1_2, so an abort holds at full gains | upstream | G1: fixed here by the e-stop latch (`docs/estop.md`); H1, H1_2: open |
+| G1 Ctrl-C while armed: `/lowcmd` silent at once, motors passive 0.4 s later | upstream | fixed here: damp frames for 1 s first, no PR yet |
 | G1 tracking frame carries a NaN `/lowstate` that lands after `checkState_` (kp-0 and parallel joints) | upstream | fixed here: not sent, latches `state_invalid`, no PR yet |
 | G1 target gates: range clamp, speed limit, kp-0 torque window (`docs/psi0_gates.md`) | upstream | added here, no PR yet |
 | G1 torque window ignores the feedforward `tau`: `tau = tau_limit` plus a full PD window commands 2× `tau_limit` | upstream | fixed here, no PR yet |
@@ -227,8 +228,9 @@ tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.
 - **Control stops 200 ms after the last command's interpolation ends**, unless
   `hold_position`. On the G1 that latches `hold` until `/estop_reset`. A chunked client must cover the gap with `duration`.
 - **G1: a fault latches the mode `estop:` names** (damp for IMU, state loss,
-  invalid state; hold for a command timeout). A stopped bridge leaves `/lowcmd`
+  invalid state; hold for a command timeout). A killed or crashed bridge leaves `/lowcmd`
   silent, and the motors go passive about 0.4 s later (`docs/estop.md`, G0).
+  Ctrl-C or SIGTERM while sending damps for 1 s first.
 - **H1, H1_2: an abort does not release the joints.** `finishControl_` only
   logs, so the robot holds its last pose at full kp/kd. Only T1 drops to damping.
 - **`kp = 0` makes the torque clamp a no-op for that joint** (`upper_limbs_kp_min: 0.0`).

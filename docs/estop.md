@@ -41,6 +41,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 - Faults and combos fire at onset only (author, 2026-10-19): an operator hold during a lasting fault stays. Combo hold → damp (L1 added) fires; damp → hold (L1 released first) does not.
 - A non-finite measured q never reaches `/lowcmd`: in a stop frame that joint gets damp at q 0; a tracking frame with any non-finite field is not sent and latches `state_invalid`.
 - Hands: in `LATCHED` the hand timer sends its existing limp frames. `STOPPED` leaves the hands alone.
+- SIGINT or SIGTERM while publishing: latches `damp shutdown` over any earlier cause, sends damp frames for 1 s (`SHUTDOWN_DAMP_S`), then exits silent. Final: no reset, re-arm or mode change. From `DISARMED` or a silent latch it exits silent at once. SIGKILL or a crash: silent at once (G0).
 - New topic `/bridge_state` (`std_msgs/String`, transient-local, on change), e.g. `LATCHED damp remote_damp`.
 
 ## Stop frames
@@ -69,6 +70,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 | remote `R1+R2` | `remote_hold` | hold (fixed) | yes |
 | `/estop_damp` (`Trigger`) | `service_damp` | damp (fixed) | yes |
 | `/estop_hold` (`Trigger`) | `service_hold` | hold (fixed) | yes |
+| SIGINT, SIGTERM | `shutdown` | damp (fixed) | yes, final; exits 1 s later |
 | `/stop_control` | `stop` | hold (config) | **no** |
 | IMU roll/pitch over threshold | `imu` | damp (config) | yes |
 | state age > 0.2 s | `state_loss` | damp (config) | yes |
@@ -140,8 +142,8 @@ estop:
 
 | Level | What |
 |---|---|
-| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss |
-| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | no `/start_control` while another node holds `/lowcmd` at start; both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `state_loss` → silent after 1.2 s. Not covered: `state_invalid` |
+| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss; shutdown damps and is final |
+| `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | no `/start_control` while another node holds `/lowcmd` at start; both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `state_loss` → silent after 1.2 s; then `drive_shutdown.py`: SIGINT while armed → damp for 1 s, then silent. Not covered: `state_invalid` |
 | `tools/test.sh --wire` | GEAR's stream ends in a `cmd_timeout` hold |
 | gantry | G0–G6 below |
 

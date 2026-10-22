@@ -19,6 +19,7 @@ namespace sairol_bridge::estop
         None,
         RemoteDamp, RemoteHold,     // operator, mode fixed
         ServiceDamp, ServiceHold,   // operator, mode fixed
+        Shutdown,                   // operator: SIGINT or SIGTERM while sending; damp, final
         Stop,                       // /stop_control, the only cause that does not latch
         Imu, StateLoss, StateInvalid, CmdTimeout,  // faults
         OtherLowcmd                 // fault, damp fixed: another /lowcmd publisher while sending
@@ -40,6 +41,8 @@ namespace sairol_bridge::estop
     constexpr double SILENCE_AFTER_S = 1.0;
     // The remote counts as connected while its header arrived this recently.
     constexpr double REMOTE_TIMEOUT_S = 0.5;
+    // A clean exit while sending keeps the damp frames up this long, then goes silent.
+    constexpr double SHUTDOWN_DAMP_S = 1.0;
 
     struct Config
     {

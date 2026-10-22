@@ -59,8 +59,9 @@ $LAB_REPO/.venv38/bin/python if present, else python3), LAB_REPO
 (~/github/humanoid-locoman-vla).
 
 Stop the bridge:  tools/g1-bringup.sh --stop
-/lowcmd then goes silent, and the motors go passive about 0.4 s later
-(docs/estop.md, G0): a standing robot falls. Gantry first.
+An armed bridge sends damp frames for 1 s, then /lowcmd goes silent, and the
+motors go passive about 0.4 s later (docs/estop.md, G0): a standing robot
+falls. Gantry first.
 /stop_control keeps the bridge up and holds the measured pose.
 EOF
 }
@@ -110,7 +111,7 @@ if [ "$DO_STOP" = 1 ]; then
     mapfile -t pids < <(robot_bridges)
     note_others
     if [ "${#pids[@]}" -eq 0 ]; then say "no G1_bridge runs"; exit 0; fi
-    say "stopping G1_bridge ${pids[*]}: /lowcmd goes silent, motors passive ~0.4 s later"
+    say "stopping G1_bridge ${pids[*]}: damp 1 s, then /lowcmd silent, motors passive ~0.4 s later"
     for p in "${pids[@]}"; do
         # The process group: `ros2 run` is a launcher, and killing it alone orphans G1_bridge.
         run kill -INT -- "-$(ps -o pgid= -p "$p" | tr -d ' ')" || true

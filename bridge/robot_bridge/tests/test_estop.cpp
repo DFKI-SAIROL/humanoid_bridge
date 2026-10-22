@@ -444,3 +444,50 @@ TEST(Silence, NotWhileIdleOrStopped)
     EXPECT_FALSE(stopped.silence());
     EXPECT_TRUE(stopped.publishing());
 }
+
+// --- shutdown ----------------------------------------------------------------
+
+TEST(Shutdown, WhileArmedLatchesDampAndPublishes)
+{
+    auto latch = latchedFromTracking(Cause::Shutdown);
+    EXPECT_TRUE(latch.publishing());
+    EXPECT_EQ(latch.describe(false), "LATCHED damp shutdown");
+}
+
+TEST(Shutdown, TurnsHoldIntoDampAndIsFinal)
+{
+    auto latch = latchedFromTracking(Cause::CmdTimeout);
+    ASSERT_EQ(latch.mode(), Mode::Hold);
+    EXPECT_TRUE(latch.trigger(Cause::Shutdown, false).changed);
+    EXPECT_EQ(latch.mode(), Mode::Damp);
+
+    EXPECT_FALSE(latch.trigger(Cause::RemoteHold, false).changed);
+    EXPECT_EQ(latch.describe(false), "LATCHED damp shutdown");
+    std::string why;
+    EXPECT_FALSE(latch.reset(false, why));
+    EXPECT_EQ(why, "shutting down");
+    EXPECT_FALSE(latch.commitArm(latch.generation()));
+}
+
+TEST(Shutdown, OverADampLatchIsFinal)
+{
+    auto latch = latchedFromTracking(Cause::ServiceDamp);
+    const auto generation = latch.generation();
+    EXPECT_TRUE(latch.trigger(Cause::Shutdown, false).changed);   // /bridge_state shows it
+    EXPECT_EQ(latch.describe(false), "LATCHED damp shutdown");
+    EXPECT_NE(latch.generation(), generation);
+
+    std::string why;
+    EXPECT_FALSE(latch.reset(false, why));
+    EXPECT_EQ(why, "shutting down");
+    EXPECT_FALSE(latch.trigger(Cause::RemoteHold, false).changed);
+    EXPECT_EQ(latch.mode(), Mode::Damp);
+}
+
+TEST(Shutdown, WhileDisarmedStaysSilent)
+{
+    SafetyLatch latch;
+    EXPECT_TRUE(latch.trigger(Cause::Shutdown, false).changed);
+    EXPECT_FALSE(latch.publishing());
+    EXPECT_EQ(latch.describe(false), "LATCHED damp shutdown silent");
+}

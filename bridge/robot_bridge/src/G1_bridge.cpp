@@ -40,6 +40,8 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     {
         return;
     }
+    // Runs while the context is still valid, so update_() keeps publishing the damp frames.
+    nh->get_node_base_interface()->get_context()->add_pre_shutdown_callback([this] { dampBeforeShutdown_(); });
 
     // Here, not last: the hand block below returns early without hand parameters.
     createArmingServices_();
@@ -408,6 +410,19 @@ void sairol_bridge::G1Bridge::publishStopCommand_()
 
 void sairol_bridge::G1Bridge::finishControl_() {
     RCLCPP_INFO(nh->get_logger(), "finishControl_ called from G1Bridge");
+}
+
+// Silence at once drops a standing robot about 0.4 s later (docs/estop.md, G0).
+void sairol_bridge::G1Bridge::dampBeforeShutdown_()
+{
+    enterStop_(estop::Cause::Shutdown);   // also voids an arming in progress
+    if (!stopPublishing_)
+    {
+        return;   // DISARMED, or a latch already silent: stays silent
+    }
+    RCLCPP_WARN(nh->get_logger(), "Shutdown: damp frames for %.1f s, then /lowcmd goes silent",
+                estop::SHUTDOWN_DAMP_S);
+    std::this_thread::sleep_for(std::chrono::duration<double>(estop::SHUTDOWN_DAMP_S));
 }
 
 
