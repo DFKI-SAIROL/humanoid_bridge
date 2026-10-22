@@ -33,6 +33,7 @@ def load_params(path):
         "kd": [float(params[n]["kd"]) for n in names],
         "damp_kd": float(params["estop"]["damp_kd"]),
         "ready_q": [float(v) for v in params["ready_q"]],
+        "parallel": [bool(params[n].get("if_parallel_joint", False)) for n in names],
     }
 
 
@@ -60,7 +61,7 @@ class Driver:
         self.count = 0
         self.failures = []
         self.changes = []  # (t, state)
-        self.frames = []  # (t, kp, q)
+        self.frames = []  # (t, kp, q, dq, tau)
 
     def _on_state(self, msg):
         self.state = msg.data
@@ -70,7 +71,15 @@ class Driver:
         self.last = msg
         self.count += 1
         motors = list(msg.motor_cmd)[:NUM_MOTORS]
-        self.frames.append((time.monotonic(), [m.kp for m in motors], [m.q for m in motors]))
+        self.frames.append(
+            (
+                time.monotonic(),
+                [m.kp for m in motors],
+                [m.q for m in motors],
+                [m.dq for m in motors],
+                [m.tau for m in motors],
+            )
+        )
 
     # --- helpers ---------------------------------------------------------
 
@@ -137,6 +146,18 @@ class Driver:
         worst = max(abs(m.q - w) for m, w in zip(motors, q))
         return worst < 1e-2, f"worst |q - wanted| {worst:.4f}"
 
+    def feedforward(self, dq, tau, frames):
+        """Every frame sends this dq and tau. Parallel joints: dq only, the bridge converts their torque."""
+        parallel = self.params["parallel"]
+        bad = sum(
+            any(
+                abs(f_dq[i] - dq) > 1e-6 or (not parallel[i] and abs(f_tau[i] - tau) > 1e-6)
+                for i in range(len(parallel))
+            )
+            for _, _, _, f_dq, f_tau in frames
+        )
+        return bool(frames) and bad == 0, f"{bad} of {len(frames)} frames off"
+
     def rate(self, seconds=1.0):
         start = self.count
         self.spin(seconds)
@@ -146,10 +167,12 @@ class Driver:
         self.keys.publish(UInt16(data=keys))
         self.spin(seconds)
 
-    def send(self, q, hold_position, duration=0.1):
+    def send(self, q, hold_position, duration=0.1, dq=0.0, tau=0.0):
         n = NUM_MOTORS
         self.client.send_cmd(
             q_target_pos=[q] * n,
+            q_target_vel=[dq] * n,
+            target_tau=[tau] * n,
             target_kp=self.params["kp"],
             target_kd=self.params["kd"],
             duration=duration,
@@ -245,6 +268,11 @@ class Driver:
         self.check("bad interpolation_order dropped, bridge alive", hz > 500, f"{hz:.0f} Hz")
         self.check("ARMED, still at 0.123", *self.frame(kp, kd, q=0.123))
 
+        # Feedforward from the last client: the next arm must drop it, its hold has no timeout.
+        self.send(0.123, hold_position=True, dq=0.05, tau=0.5)
+        self.spin(0.3)
+        self.check("dq and tau reach /lowcmd", *self.feedforward(0.05, 0.5, self.frames[-1:]))
+
         # Operator damp.
         self.client.estop_damp()
         self.check_state("estop_damp latches", "LATCHED damp service_damp")
@@ -269,9 +297,12 @@ class Driver:
         self.check("STOPPED keeps the hold frame", *self.frame(kp, kd, q=0.123))
 
         # Re-arm, then /stop_control: hold, no latch.
+        rearm = time.monotonic()
         self.check("start_control after reset", self.start(0.2).success)
         self.spin(RAMP_SECONDS)
         self.check("ramp reached 0.2", *self.frame(kp, kd, q=0.2))
+        rearmed = [f for f in self.frames if f[0] >= rearm]
+        self.check("re-arm sends dq 0 and tau 0", *self.feedforward(0.0, 0.0, rearmed))
         self.client.stop_control()
         self.check_state("stop_control holds without latch", "STOPPED hold stop")
         reply = self.client.start_control(default_position=[], timeout_sec=30.0)
@@ -336,7 +367,7 @@ class Driver:
         times = [t for t, _ in self.changes]
         damp_bad = hold_bad = silent_bad = checked = 0
         hold_q = {}  # change index -> first q in that interval
-        for t, kp, q in self.frames:
+        for t, kp, q, _, _ in self.frames:
             i = bisect.bisect_right(times, t) - 1
             if i < 0:
                 continue

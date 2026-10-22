@@ -292,10 +292,15 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
     {
         // Gate 2 ramps from lastCommand_: all zeros at boot, which would pull every joint toward 0.
         std::lock_guard<std::mutex> lock(mutex_);
+        // dq and tau too: the last /robot_cmd's would otherwise ride on the hold, with no timeout.
         for (int i = 0; i < numJoint_; ++i)
         {
             lastCommand_.motor_cmd[i].q = currentState_.motor_state[i].q;
+            lastCommand_.motor_cmd[i].dq = 0.0;
+            lastCommand_.motor_cmd[i].tau = 0.0;
             lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
+            lowCommandDesired_.motor_cmd[i].dq = 0.0;
+            lowCommandDesired_.motor_cmd[i].tau = 0.0;
             lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
             lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
         }
