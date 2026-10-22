@@ -33,6 +33,14 @@ try
         return 1;
     }
 
+    // Read once above, while readers such as g1_web_commander read the live values: refuse every change.
+    auto read_only = nh->add_on_set_parameters_callback([](const std::vector<rclcpp::Parameter> &) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = false;
+        result.reason = "robot_bridge parameters are read-only: edit the config and restart the bridge";
+        return result;
+    });
+
     if (bridge && rclcpp::ok())   // not after Ctrl-C in the constructor's waits: spin would throw
     {
         bridge->start();

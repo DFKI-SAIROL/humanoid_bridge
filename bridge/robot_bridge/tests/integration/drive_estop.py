@@ -10,6 +10,8 @@ import time
 
 import rclpy
 import yaml
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, Float32, String, UInt16
 from std_srvs.srv import Trigger
@@ -209,6 +211,23 @@ class Driver:
 
         self.check("fake_g1 inputs matched", self.wait_inputs())
         self.check_state("starts DISARMED", "DISARMED")
+
+        # The bridge reads its parameters once; g1_web_commander reads the live ones.
+        get = self.node.create_client(GetParameters, "/robot_bridge/get_parameters")
+        put = self.node.create_client(SetParameters, "/robot_bridge/set_parameters")
+        names = self.client._call(get, GetParameters.Request(names=["joint_names"]), 10.0)
+        key = names.values[0].string_array_value[0] + ".kp"
+        value = ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=999.0)
+        request = SetParameters.Request(parameters=[Parameter(name=key, value=value)])
+        result = self.client._call(put, request, 10.0).results[0]
+        self.check(
+            f"param set {key} refused",
+            not result.successful and "read-only" in result.reason,
+            result.reason,
+        )
+        now = self.client._call(get, GetParameters.Request(names=[key]), 10.0).values[0]
+        kept = now.double_value == self.params["kp"][0]
+        self.check(f"{key} unchanged", kept, str(now.double_value))
 
         # Arming needs the remote (estop.require_remote); fake_g1 sends its header by default.
         count = self.count

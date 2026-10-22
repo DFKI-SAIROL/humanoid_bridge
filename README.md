@@ -43,6 +43,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | `start_control` drops `default_kp`/`default_kd` silently, arms with the config gains | upstream | fixed here: non-empty gains refused, no PR yet |
 | Arming services exist during the startup waits, so a call made then arms later | upstream | fixed here: created after the waits, no PR yet |
 | Ctrl-C during the startup waits aborts the bridge: the graph calls throw once rclcpp is shut down | upstream | fixed here for G1, H1, H1_2: clean exit, no PR yet; T1 open |
+| Any host can `ros2 param set /robot_bridge`: the bridge ignores it, live readers do not | upstream | G1: fixed here: every change refused, no PR yet |
 | G1 `_default_pos` is 27 long while kp/kd are 29 | upstream | **open**, `fix/g1-default-pos-29` |
 | `finishControl_` only logs on G1, H1, H1_2, so an abort holds at full gains | upstream | G1: fixed here by the e-stop latch (`docs/estop.md`); H1, H1_2: open |
 | G1 tracking frame carries a NaN `/lowstate` that lands after `checkState_` (kp-0 and parallel joints) | upstream | fixed here: not sent, latches `state_invalid`, no PR yet |
@@ -230,6 +231,8 @@ tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.
 - **H1, H1_2: an abort does not release the joints.** `finishControl_` only
   logs, so the robot holds its last pose at full kp/kd. Only T1 drops to damping.
 - **`kp = 0` makes the torque clamp a no-op for that joint** (`upper_limbs_kp_min: 0.0`).
+- **G1: `/robot_bridge` parameters are read-only.** `ros2 param set` is refused:
+  the bridge reads them once at start. Edit the config and restart.
 - **`robot_bridge/package.xml` depends on `booster_interface` and `aimdk_msgs`
   unconditionally**, so both build even with T1 and X2 off.
 - **X2: never run on a robot in this fork.** Every stop damps and latches in
