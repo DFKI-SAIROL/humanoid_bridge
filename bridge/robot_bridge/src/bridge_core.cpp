@@ -50,7 +50,7 @@ namespace sairol_bridge
             "/bridge_state", rclcpp::QoS(1).reliable().transient_local());
         publishBridgeState_(describeState_());
 
-        last_state_time_ = nh->get_clock()->now();
+        last_state_time_ = steadyClock_.now();
     }
 
     void BridgeCore::createArmingServices_()
@@ -386,13 +386,13 @@ namespace sairol_bridge
                 {
                     enterStop_(fault);
                 }
-                else if (controlStarted_ && nh->get_clock()->now().seconds() > tValid_)
+                else if (controlStarted_ && steadyClock_.now().seconds() > tValid_)
                 {
                     enterStop_(estop::Cause::CmdTimeout);
                 }
 
                 std::unique_lock<std::mutex> lock(mutex_);
-                const double state_age = (nh->get_clock()->now() - last_state_time_).seconds();
+                const double state_age = (steadyClock_.now() - last_state_time_).seconds();
                 if (estop::silenceDue(latch_.latched(), latch_.publishing(), state_age) && latch_.silence())
                 {
                     syncLatchFlags_();
@@ -473,7 +473,7 @@ namespace sairol_bridge
 
         lock.unlock();
 
-        tStart_ = nh->get_clock()->now().seconds();
+        tStart_ = steadyClock_.now().seconds();
         tFinal_ = tStart_ + duration;
         if (hold_position)
         {
@@ -491,8 +491,8 @@ namespace sairol_bridge
         const rclcpp::Time last_state_time = last_state_time_;
         lock.unlock();
 
-        auto &clock = *nh->get_clock();
-        const auto dt_state_ = (clock.now() - last_state_time).seconds();
+        auto &clock = steadyClock_;   // throttles too: a backward clock step must not silence them
+        const auto dt_state_ = (steadyClock_.now() - last_state_time).seconds();
 
         // Check if the state message is received within the expected interval
         if (dt_state_ > estop::STATE_LOSS_S)
@@ -519,7 +519,7 @@ namespace sairol_bridge
         const auto imu = imu_;
         lock.unlock();
 
-        auto &clock = *nh->get_clock();
+        auto &clock = steadyClock_;
 
         // Check if the state message has valid data
         if (motor_state.size() != static_cast<size_t>(numJoint_))
@@ -631,7 +631,7 @@ namespace sairol_bridge
         {
             return true;
         }
-        const double age = nh->get_clock()->now().seconds() - lastRemoteHeader_.load();
+        const double age = steadyClock_.now().seconds() - lastRemoteHeader_.load();
         if (age <= estop::REMOTE_TIMEOUT_S)
         {
             return true;

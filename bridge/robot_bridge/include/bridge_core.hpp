@@ -118,6 +118,8 @@ namespace sairol_bridge
         bridge_interface::msg::LowState currentState_;
         bridge_interface::msg::ImuState imu_;
 
+        // Every safety timer stamps and compares on this clock: a wall-clock step must not blind it.
+        rclcpp::Clock steadyClock_{RCL_STEADY_TIME};
         rclcpp::Time last_state_time_;
 
         std::thread controlThread_;
@@ -148,7 +150,7 @@ namespace sairol_bridge
         std::atomic<bool> latched_{false};
         std::atomic<bool> stopPublishing_{false};
         std::atomic<uint16_t> remoteKeys_{0};
-        std::atomic<double> lastRemoteHeader_{-1e9};   // clock seconds; set by the robot's state handler
+        std::atomic<double> lastRemoteHeader_{-1e9};   // steadyClock_ seconds; set by the robot's state handler
         estop::Cause lastFault_{estop::Cause::None};   // control thread only
         bool invalidFrame_{false};   // control thread only: publishLowCommand_ sent nothing, a field not finite
 

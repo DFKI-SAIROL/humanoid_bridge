@@ -86,7 +86,7 @@ void sairol_bridge::H1_2Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shar
         controlStarted_ = false;
     }
 
-    last_state_time_ = nh->get_clock()->now();
+    last_state_time_ = steadyClock_.now();
     const auto motor_count = std::min(static_cast<size_t>(numJoint_), msg->motor_state.size());
     for (size_t i = 0; i < motor_count; ++i)
     {
@@ -104,7 +104,7 @@ void sairol_bridge::H1_2Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shar
 
 void sairol_bridge::H1_2Bridge::publishLowCommand_()
 {
-    rclcpp::Time current = nh->get_clock()->now();
+    rclcpp::Time current = steadyClock_.now();
 
     float_t phase = 1.0f;
     if (tFinal_ - tStart_ > 1e-6) {
@@ -178,7 +178,7 @@ void sairol_bridge::H1_2Bridge::publishLowCommand_()
 
 bool sairol_bridge::H1_2Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
-    last_state_time_ = nh->get_clock()->now();
+    last_state_time_ = steadyClock_.now();
 
     for (int i = 0; i < numJoint_; ++i)
     {

@@ -473,11 +473,12 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
         return;
     }
 
+    // Headers carry world time (aimdk); the phase runs on steadyClock_, as tStart_ does.
     rclcpp::Time current = nh->get_clock()->now();
 
     float_t phase = 1.0f;
     if (tFinal_ - tStart_ > 1e-6) {
-        phase = (current.seconds() - tStart_) / (tFinal_ - tStart_);
+        phase = (steadyClock_.now().seconds() - tStart_) / (tFinal_ - tStart_);
     }
 
     phase = std::clamp(phase, 0.0f, 1.0f); // Ensure phase is between 0 and 1

@@ -108,7 +108,7 @@ void sairol_bridge::H1Bridge::lowStateHandler_(unitree_go::msg::LowState::Shared
         controlStarted_ = false;
     }
     // Update the last state time using the same clock source
-    last_state_time_ = nh->get_clock()->now();
+    last_state_time_ = steadyClock_.now();
     for (size_t i = 0; i < msg->motor_state.size(); ++i)
     {
         currentState_.motor_state[i].q = msg->motor_state[i].q;
@@ -121,7 +121,7 @@ void sairol_bridge::H1Bridge::lowStateHandler_(unitree_go::msg::LowState::Shared
 
 void sairol_bridge::H1Bridge::publishLowCommand_()
 {
-    rclcpp::Time current = nh->get_clock()->now();
+    rclcpp::Time current = steadyClock_.now();
 
     float_t phase = 1.0f;
     if (tFinal_ - tStart_ > 1e-6) {
@@ -191,7 +191,7 @@ void sairol_bridge::H1Bridge::publishLowCommand_()
 
 bool sairol_bridge::H1Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
-    last_state_time_ = nh->get_clock()->now();
+    last_state_time_ = steadyClock_.now();
 
     for (int i = 0; i < numJoint_; ++i)
     {

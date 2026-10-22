@@ -112,7 +112,7 @@ void sairol_bridge::T1Bridge::wireless_callback(sensor_msgs::msg::Joy::SharedPtr
 void sairol_bridge::T1Bridge::lowStateHandler_(booster_interface::msg::LowState::SharedPtr msg)
 {
     // Update the last state time using the same clock source
-    last_state_time_ = nh->get_clock()->now();
+    last_state_time_ = steadyClock_.now();
     for (size_t i = 0; i < msg->motor_state_serial.size(); ++i)
     {
         currentState_.motor_state[i].q = msg->motor_state_serial[i].q;
@@ -127,7 +127,7 @@ void sairol_bridge::T1Bridge::lowStateHandler_(booster_interface::msg::LowState:
 
 void sairol_bridge::T1Bridge::publishLowCommand_()
 {
-    rclcpp::Time current = nh->get_clock()->now();
+    rclcpp::Time current = steadyClock_.now();
 
     float_t phase = 1.0f;
     if (tFinal_ - tStart_ > 1e-6) {
@@ -250,7 +250,7 @@ bool sairol_bridge::T1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
 
     calculateInterpolationParams_(duration_, 1, true);
 
-    last_state_time_ = nh->get_clock()->now();
+    last_state_time_ = steadyClock_.now();
 
     return true;
 }

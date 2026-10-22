@@ -79,6 +79,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 - `/estop_reset` is refused while its cause is still present: state stale, IMU over threshold, NaN, or a combo still held.
 - Body arming (`start_control`, `ready`/`zero` while disarmed) is refused while `checkState_` reports a fault (state stale, NaN, `dq`, IMU); the reply names the cause, e.g. `robot state fault: state_loss`.
 - No remote reset: a reset combo can be hit while pressing buttons in a panic.
+- State age, command timeout, remote age, the hand watchdogs and their throttled logs run on one steady clock (`steadyClock_`): a wall-clock step does not blind them. Not tested: the clock step itself.
 
 ## Without a UI
 
