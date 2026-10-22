@@ -20,6 +20,15 @@ try
     std::string robot_name;
     nh->get_parameter("robot_name", robot_name);
 
+    // The G1 reads its remote, so a config without the key still needs it to arm. Declared
+    // before the bridge reads it, so the bridge logs the value it uses.
+    if (!nh->has_parameter("estop.require_remote"))
+    {
+        RCLCPP_WARN(nh->get_logger(), "No estop.require_remote in the config: the G1 default is true, "
+                                      "arming needs the remote");
+        nh->declare_parameter("estop.require_remote", true);
+    }
+
     std::shared_ptr<sairol_bridge::BridgeCore> bridge;
 
     try

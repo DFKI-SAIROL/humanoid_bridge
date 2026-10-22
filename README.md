@@ -51,7 +51,7 @@ Forked from [DFKI-SAIROL/humanoid_bridge](https://github.com/DFKI-SAIROL/humanoi
 | G1 target gates: range clamp, speed limit, kp-0 torque window (`docs/psi0_gates.md`) | upstream | added here, no PR yet |
 | G1 torque window ignores the feedforward `tau`: `tau = tau_limit` plus a full PD window commands 2× `tau_limit` | upstream | fixed here, no PR yet |
 | `start_control` keeps the last `/robot_cmd`'s dq and tau in its endless hold | upstream | G1: fixed here, no PR yet; H1, H1_2, T1, X2: open |
-| G1 arming needs the remote (`estop.require_remote`) | upstream | added here, no PR yet |
+| G1 arming needs the remote (`estop.require_remote`, true if unset) | upstream | added here, no PR yet |
 | G1 `initControl_` resets the `/lowstate` age, so arming on a stalled state tracks it for 0.2 s | upstream | fixed here: arming refused on a state fault, no PR yet |
 | G1 checks for another `/lowcmd` sender only at arming | upstream | fixed here: one that starts while sending latches `damp other_lowcmd`, no PR yet |
 | `test_node` (a 23-motor `/robot_cmd` at 500 Hz) built and installed by default | upstream | fixed here: only with `-DBUILD_TEST_NODE=ON`, no PR yet; an existing workspace keeps it until `tools/build.sh --clean robot_bridge` |
@@ -221,6 +221,7 @@ tests that need `bridge_interface` skip. `tools/test.sh` prints what it ran.
   non-empty `default_kp`/`default_kd`: arming uses the config gains.
 - **G1: no arming without the remote.** `estop.require_remote` refuses every
   arming service until the remote's header arrives: switch the remote on.
+  A G1 config without the key gets `true`.
 - **The first `/robot_cmd` cuts the arming ramp short.** `controlStarted_` is
   set before the 2 s ramp, so a client already streaming jumps to its own
   target at the gate-2 speed limit (G1: arms 3, rest 6 rad/s). Arm before the

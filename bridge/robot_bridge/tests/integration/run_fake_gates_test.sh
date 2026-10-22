@@ -38,3 +38,20 @@ fi
 if ! python3 "$HERE/drive_gates.py" "$PARAMS" --start-q "$START_Q"; then
     echo; echo "bridge log, last 30 lines:"; tail -30 "$OUT/bridge.log"; exit 1
 fi
+
+# A second bridge on the same config minus its estop: block. SIGINT, not SIGKILL: a killed
+# bridge's /lowcmd publisher stays in discovery, and the next bridge waits on it.
+kill -INT -- "-$BRIDGE_PID" 2>/dev/null || true
+for _ in $(seq 1 50); do kill -0 -- "-$BRIDGE_PID" 2>/dev/null || break; sleep 0.1; done
+kill -9 -- "-$BRIDGE_PID" 2>/dev/null || true
+python3 -c 'import sys, yaml
+config = yaml.safe_load(open(sys.argv[1]))
+del config["robot_bridge"]["ros__parameters"]["estop"]
+yaml.safe_dump(config, open(sys.argv[2], "w"))' "$PARAMS" "$OUT/no_estop.yaml"
+echo; echo "=== no estop: block ==="
+setsid ros2 run robot_bridge G1_bridge --ros-args -r __node:=robot_bridge \
+    --params-file "$OUT/no_estop.yaml" > "$OUT/bridge_no_estop.log" 2>&1 &
+BRIDGE_PID=$!; disown "$BRIDGE_PID"  # no 'Killed' notice when cleanup kills it
+if ! python3 "$HERE/drive_no_estop_block.py" "$OUT/bridge_no_estop.log" --start-q "$START_Q"; then
+    echo; echo "bridge log, last 30 lines:"; tail -30 "$OUT/bridge_no_estop.log"; exit 1
+fi

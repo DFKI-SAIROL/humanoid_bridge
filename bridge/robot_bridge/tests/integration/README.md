@@ -82,6 +82,7 @@ left the body idle.
 | `check_hand_cmd.py` | asserts the hand recording; pure offline, needs no ROS |
 | `run_fake_hand_test.sh` | orchestrates the hand run |
 | `run_config_test.sh`, `drive_config.py` | `G1_bridge` on broken copies of `G1_config.yaml` (`ready_q` short or out of range, `idx` out of order, inverted limits): each must fail its parameter load. No fake robot |
+| `drive_no_estop_block.py` | after `drive_gates.py`, on a second bridge whose config lacks `estop:`: arming refused without the remote, accepted with it |
 
 ## What breaks it
 

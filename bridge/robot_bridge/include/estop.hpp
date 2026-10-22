@@ -54,7 +54,7 @@ namespace sairol_bridge::estop
         Mode state_loss{Mode::Damp};
         Mode state_invalid{Mode::Damp};
         Mode cmd_timeout{Mode::Hold};
-        bool require_remote{false};   // arming services refused without the remote
+        bool require_remote{false};   // arming services refused without the remote; g1_node: true if unset
     };
 
     bool isOperator(Cause cause);
