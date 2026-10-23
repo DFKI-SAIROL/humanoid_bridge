@@ -6,7 +6,7 @@ sender: GEAR -> robot_bridge.adapters.gear_wbc -> /robot_cmd -> G1_bridge
 
 Arming is the operator's step, not this process's: the bridge drops every
 /robot_cmd until `start_control` is called. `tools/g1-bringup.sh` does the
-whole ordering.
+whole ordering. $G1_CONTROLLER_LOG: every command sent, as JSONL (g1_stack.cmd_log).
 
 Runs in the controller's own venv ($SIMPLE_VENV) with the ROS workspace
 sourced, because it imports both GEAR and rclpy:
@@ -23,12 +23,14 @@ import sys
 import threading
 import time
 
+from g1_stack import cmd_log
+
 NODE_NAME = "gear_wbc_bridge"
 NUM_MOTORS = 29
 
 
 def run(config, rclpy, client_cls, install, loop_main, patch_channel, out=print,
-        install_hands=None):
+        install_hands=None, environ=None):
     """Start ROS inside GEAR's channel init, then hand `config` to upstream.
 
     The order is the whole point. GEAR's raw CycloneDDS has to create the DDS
@@ -73,6 +75,8 @@ def run(config, rclpy, client_cls, install, loop_main, patch_channel, out=print,
         wait_for_node(rclpy)
         # GEAR's own timing: a step every tick, no extra delay.
         client = client_cls(node, num_dof=NUM_MOTORS, control_frequency=hz, interpolation_order=0.0)
+        client = cmd_log.from_env(client, {"controller": "gear-wbc", "rate_hz": hz}, environ)
+        started["client"] = client
         install(client, duration=1.0 / hz)
         out(
             f"GEAR -> /robot_cmd at {hz:g} Hz, duration {1.0 / hz:.3f}s. The bridge must be "
@@ -88,6 +92,8 @@ def run(config, rclpy, client_cls, install, loop_main, patch_channel, out=print,
         loop_main(config)
     finally:
         restore()
+        if hasattr(started.get("client"), "close_log"):
+            started["client"].close_log()
         node = started.get("node")
         if node is not None:
             node.destroy_node()

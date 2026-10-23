@@ -191,6 +191,7 @@ def start_camera(node, args):
         source_name="g1_sim d435",
         preview_port=args.preview_port,
         bind=args.camera_bind,
+        capture_hz=args.camera_hz,
     ).start()
     node.get_logger().info(
         f"camera on tcp://{server.bind}:{server.port}, "

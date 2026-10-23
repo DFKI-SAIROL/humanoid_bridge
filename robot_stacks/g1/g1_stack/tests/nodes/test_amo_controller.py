@@ -216,3 +216,20 @@ def test_urdf_defaults_beside_the_amo_dir(tmp_path):
     args = ac.parse_args(["--amo-dir", str(tmp_path / "real" / "teleop")])
     assert args.urdf == tmp_path / "real" / "assets" / "g1" / "g1_body29_hand14.urdf"
     assert (args.tau_ff, args.hands, args.goal_port, args.walk) == ("arms", True, 6001, False)
+
+
+def test_a_tick_notes_its_state_and_command_for_the_controller_log(tmp_path):
+    import json
+
+    from g1_stack import cmd_log
+
+    ctl, _, _ = make()
+    path = tmp_path / "c.jsonl"
+    ctl.client = cmd_log.LoggedCmdClient(FakeClient(), path, "episode_0", {"controller": "amo"})
+    ctl.tick(STATE)
+    ctl.client.close_log()
+    row = json.loads(path.read_text().splitlines()[1])
+    assert row["obs"]["quat"] == [1.0, 0.0, 0.0, 0.0]
+    assert row["command"]["navigate_cmd"] == [0.0, 0.0, 0.0]
+    assert row["command"]["base_height_command"] == STAND.torso_height
+    assert len(row["q_target"]) == 29

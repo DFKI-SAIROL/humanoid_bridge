@@ -9,6 +9,10 @@ Both listen on `--bind` only, default the Jetson's robot-network address
 `/health`. It answers from the cache while that is younger than `--max-age`, so
 a preview open during a run faster than that touches neither the camera nor the
 REP socket.
+
+`--capture-hz` (default 30) grabs on a thread of its own into that cache; REP,
+the preview and `/stream.mjpeg` (every new frame, for a recorder) all serve the
+newest frame, so no reader queues behind another's grab. 0 grabs per request.
 """
 
 from __future__ import annotations
@@ -36,6 +40,9 @@ class CameraServer:
     trip the run is measuring. Below that it grabs its own frames and takes
     `_source_lock`, which the policy loop then waits on: raise `max_age_s` if a
     preview open during a run slows it.
+
+    With `capture_hz` a thread grabs at that rate instead, and REP answers from
+    the cache; older than `max_age_s` it answers empty, never a stale frame.
     """
 
     def __init__(
@@ -49,6 +56,7 @@ class CameraServer:
         source_name=None,
         clock=time.monotonic,
         bind=wire.DEFAULT_HOST,
+        capture_hz=None,
     ):
         self._zmq = zmq_module or __import__("zmq")
         self._source = source if source is not None else V4L2Source()
@@ -57,6 +65,7 @@ class CameraServer:
         self.max_age_s = max_age_s
         self.source_name = source_name or _source_name(self._source)
         self.bind = bind
+        self.capture_hz = capture_hz or None
 
         self._ctx = self._zmq.Context.instance()
         self._socket = self._ctx.socket(self._zmq.REP)
@@ -72,12 +81,17 @@ class CameraServer:
         # served and failures count ZMQ replies only; the preview moves neither.
         self.served = 0
         self.failures = 0
+        self.capture_failures = 0
         # Every call of _source goes through this. Neither VideoHubSource nor
         # V4L2Source is thread-safe and the preview reads on its own thread.
         self._source_lock = threading.Lock()
         # (jpeg, stamp), replaced as one object so a reader never sees a torn pair.
         self._cached = None
+        self._fresh = threading.Condition()  # notified on every new frame
         self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._capture_thread = (
+            threading.Thread(target=self._capture, daemon=True) if self.capture_hz else None
+        )
 
         self.preview_port = None
         self._preview = None
@@ -95,6 +109,8 @@ class CameraServer:
         )
 
     def start(self):
+        if self._capture_thread is not None:
+            self._capture_thread.start()
         self._thread.start()
         if self._preview_thread is not None:
             self._preview_thread.start()
@@ -104,8 +120,23 @@ class CameraServer:
         """One fresh encoded frame, cached on the way out. Raises what the source raises."""
         with self._source_lock:
             jpeg = self._encode(self._source())
-        self._cached = (jpeg, self._clock())
+        with self._fresh:
+            self._cached = (jpeg, self._clock())
+            self._fresh.notify_all()
         return jpeg
+
+    def wait_frame(self, last, timeout):
+        """Block until the cache holds a frame other than `last`, the server stops, or `timeout`."""
+        with self._fresh:
+            self._fresh.wait_for(
+                lambda: self._stop.is_set()
+                or (self._cached is not None and self._cached[0] is not last),
+                timeout,
+            )
+
+    @property
+    def stopped(self):
+        return self._stop.is_set()
 
     def cached_jpeg(self):
         """(jpeg, age in seconds) of the newest frame, or (None, None)."""
@@ -134,7 +165,30 @@ class CameraServer:
             "failures": self.failures,
             "age_s": None if age is None else round(age, 3),
             "source": self.source_name,
+            "capture_hz": self.capture_hz,
+            "capture_failures": self.capture_failures,
         }
+
+    def _capture(self):
+        """Grabs every 1/capture_hz s until stop; a late grab is not made up."""
+        period = 1.0 / self.capture_hz
+        due = time.monotonic()
+        while not self._stop.is_set():
+            try:
+                self.grab_jpeg()
+            except Exception:  # noqa: BLE001
+                self.capture_failures += 1
+            due = max(due + period, time.monotonic())
+            self._stop.wait(max(0.0, due - time.monotonic()))
+
+    def _reply_jpeg(self):
+        """REP's frame: a fresh grab, or with capture the cache while younger than max_age_s."""
+        if not self.capture_hz:
+            return self.grab_jpeg()
+        jpeg, age = self.cached_jpeg()
+        if jpeg is None or age >= self.max_age_s:
+            raise RuntimeError("no captured frame younger than max_age_s")
+        return jpeg
 
     def _serve(self):
         while not self._stop.is_set():
@@ -142,7 +196,7 @@ class CameraServer:
                 continue
             self._socket.recv()
             try:
-                jpeg = self.grab_jpeg()
+                jpeg = self._reply_jpeg()
             except Exception:  # noqa: BLE001
                 # Not answering wedges the client's REQ socket. An empty reply
                 # gives it a recoverable CameraTimeout instead.
@@ -153,28 +207,37 @@ class CameraServer:
             self._socket.send_multipart([jpeg, b"", b""])
 
     def stop(self):
+        self._stop.set()
+        with self._fresh:
+            self._fresh.notify_all()  # ends every /stream.mjpeg
         if self._preview is not None:
             # shutdown() blocks forever unless serve_forever is actually running.
             if self._preview_thread.is_alive():
                 self._preview.shutdown()
                 self._preview_thread.join(timeout=2.0)
             self._preview.server_close()
-        self._stop.set()
         if self._thread.ident is not None:
             self._thread.join(timeout=2.0)
+        if self._capture_thread is not None and self._capture_thread.ident is not None:
+            self._capture_thread.join(timeout=2.0)
         self._socket.close(linger=0)
         close = getattr(self._source, "close", None)
         if close:
             close()
 
 
+STREAM_BOUNDARY = b"frame"
+
+
 class _PreviewHandler(BaseHTTPRequestHandler):
-    """GET /frame.jpg -> JPEG, GET /health -> JSON, anything else -> 404."""
+    """GET /frame.jpg -> JPEG, /stream.mjpeg -> every new frame, /health -> JSON, else 404."""
 
     def do_GET(self):  # noqa: N802 - the stdlib's spelling
         path = self.path.split("?", 1)[0]
         if path == "/frame.jpg":
             self._send_frame()
+        elif path == "/stream.mjpeg":
+            self._send_stream()
         elif path == "/health":
             self._send_json(200, self.server.camera.health())
         else:
@@ -187,6 +250,34 @@ class _PreviewHandler(BaseHTTPRequestHandler):
             return
         # no-store, or the browser pins the first frame and the preview freezes.
         self._send_body(200, "image/jpeg", jpeg, headers=(("Cache-Control", "no-store"),))
+
+    def _send_stream(self):
+        """multipart/x-mixed-replace until the client goes or the server stops; `ffmpeg -f mpjpeg`
+        reads it. Without capture it advances once the cache is older than max_age_s."""
+        camera = self.server.camera
+        self.send_response(200)
+        self.send_header(
+            "Content-Type", "multipart/x-mixed-replace; boundary=" + STREAM_BOUNDARY.decode()
+        )
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        last = None
+        try:
+            while not camera.stopped:
+                camera.wait_frame(last, camera.max_age_s)
+                jpeg = camera.preview_jpeg()
+                if not jpeg or jpeg is last or camera.stopped:
+                    continue
+                self.wfile.write(
+                    b"--%s\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n"
+                    % (STREAM_BOUNDARY, len(jpeg))
+                    + jpeg
+                    + b"\r\n"
+                )
+                self.wfile.flush()
+                last = jpeg
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _send_json(self, status, payload):
         self._send_body(status, "application/json", json.dumps(payload).encode("utf-8"))
@@ -261,6 +352,12 @@ def parse_args(argv=None):
         "its own; raise it if the preview slows a run",
     )
     parser.add_argument(
+        "--capture-hz",
+        type=float,
+        default=30.0,
+        help="grab on a thread at this rate and serve the newest frame; 0 grabs per request",
+    )
+    parser.add_argument(
         "--dds-iface", default=None, help="DDS interface, auto-detected on the robot itself"
     )
     parser.add_argument(
@@ -293,10 +390,14 @@ def main():
         preview_port=None if args.no_preview else args.preview_port,
         max_age_s=args.max_age,
         bind=args.bind,
+        capture_hz=args.capture_hz,
     ).start()
     print(f"camera server on tcp://{args.bind}:{server.port} from {origin}; ctrl-c to stop")
     if server.preview_port is not None:
-        print(f"preview on http://{args.bind}:{server.preview_port}/frame.jpg and /health")
+        print(
+            f"preview on http://{args.bind}:{server.preview_port}/frame.jpg, "
+            "/stream.mjpeg and /health"
+        )
     try:
         threading.Event().wait()
     except KeyboardInterrupt:

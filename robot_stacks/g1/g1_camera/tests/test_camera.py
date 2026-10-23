@@ -305,6 +305,8 @@ def test_health_reports_the_counters_the_age_and_the_source(preview):
         "failures": 0,
         "age_s": None,
         "source": "CountingSource",
+        "capture_hz": None,
+        "capture_failures": 0,
     }
 
     _get(server, "/frame.jpg")
@@ -341,6 +343,114 @@ def test_the_server_listens_on_the_bind_address_only():
         assert server._preview.server_address[0] == LOOPBACK
     finally:
         server.stop()
+
+
+# --- capture thread and stream ---------------------------------------------
+
+
+@pytest.fixture
+def capturing():
+    source = CountingSource()
+    server = CameraServer(
+        bind=LOOPBACK, port=0, source=source, preview_port=0, capture_hz=50.0
+    ).start()
+    client = CameraClient(host="127.0.0.1", port=server.port, timeout_ms=3000)
+    yield server, source, client
+    client.close()
+    server.stop()
+
+
+def _until(predicate, seconds=3.0):
+    import time
+
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def test_capture_grabs_on_its_own_and_rep_answers_from_the_cache(capturing):
+    server, source, client = capturing
+    assert _until(lambda: source.calls >= 3)
+    with server._source_lock:  # a grab in progress blocks the capture thread, not REP
+        assert client.read_rgb().shape == (480, 640, 3)
+    assert server.served == 1
+
+
+def test_capture_answers_empty_once_the_cache_is_stale(capturing):
+    """A dead camera under capture gives CameraTimeout, never the last good frame."""
+    server, _, client = capturing
+    assert _until(lambda: server.cached_jpeg()[0] is not None)
+    server._source = _broken
+    assert _until(lambda: server.cached_jpeg()[1] > server.max_age_s)
+    with pytest.raises(CameraTimeout):
+        client.read_rgb()
+    assert server.capture_failures > 0
+
+
+def _stream_parts(server, count):
+    """The first `count` JPEG parts of /stream.mjpeg, and the Content-Type."""
+    from urllib.request import urlopen
+
+    response = urlopen(f"http://127.0.0.1:{server.preview_port}/stream.mjpeg", timeout=5)
+    parts = []
+    with response:
+        kind = response.headers["Content-Type"]
+        while len(parts) < count:
+            assert response.readline() == b"--frame\r\n"
+            headers = {}
+            for line in iter(response.readline, b"\r\n"):
+                name, _, value = line.decode().partition(":")
+                headers[name.strip().lower()] = value.strip()
+            parts.append(response.read(int(headers["content-length"])))
+            assert response.readline() == b"\r\n"
+    return kind, parts
+
+
+def test_the_stream_sends_every_captured_frame_as_multipart_jpeg(capturing):
+    server, _, _ = capturing
+    kind, parts = _stream_parts(server, 3)
+    assert kind == "multipart/x-mixed-replace; boundary=frame"
+    assert all(part[:2] == b"\xff\xd8" for part in parts)  # JPEG SOI
+
+
+def test_the_stream_without_capture_advances_on_stale_cache():
+    server = CameraServer(
+        bind=LOOPBACK, port=0, source=CountingSource(), preview_port=0, max_age_s=0.05
+    ).start()
+    try:
+        assert len(_stream_parts(server, 2)[1]) == 2
+    finally:
+        server.stop()
+
+
+def test_stop_ends_an_open_stream(capturing):
+    import threading
+
+    server, _, _ = capturing
+    done = threading.Event()
+
+    def read():
+        from urllib.request import urlopen
+
+        with urlopen(f"http://127.0.0.1:{server.preview_port}/stream.mjpeg", timeout=5) as r:
+            while r.read(4096):
+                pass
+        done.set()
+
+    threading.Thread(target=read, daemon=True).start()
+    assert _until(lambda: server.served == 0 and server.cached_jpeg()[0] is not None)
+    server.stop()
+    assert done.wait(5)
+
+
+def test_the_cli_captures_at_30_hz_by_default():
+    from g1_camera import server
+
+    assert server.parse_args([]).capture_hz == 30.0
+    assert server.parse_args(["--capture-hz", "0"]).capture_hz == 0.0
 
 
 def test_the_cli_binds_the_jetson_robot_address_by_default():

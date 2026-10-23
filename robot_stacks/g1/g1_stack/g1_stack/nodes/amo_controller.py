@@ -6,6 +6,7 @@ operator's step; the bridge drops /robot_cmd until then. Before the first goal t
 from the pose measured at the first tick to psi0's default arms (AMO balances best there).
 No goal for GOAL_TIMEOUT: AMO stands, velocities 0, arms and hands at the last goal.
 Without --walk the goal's vx, vy and vyaw are dropped: AMO stays in place and ignores the heading.
+$G1_CONTROLLER_LOG: every tick's state, command and targets as JSONL (g1_stack.cmd_log).
 
 Runs in psi0's venv (CUDA torch, pinocchio) with the ROS workspace sourced:
 
@@ -26,6 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
+from g1_stack import cmd_log
 from g1_stack.amo import goal as goal_mod
 from g1_stack.amo import policy as amo_policy
 from g1_stack.amo.policy import DEFAULT_DOF_POS, DT, IN_PLACE_SPEED, NUM_MOTORS, STAND, Command
@@ -132,9 +134,18 @@ class Controller:
         q, dq, quat, gyro = state
         if self._arm_from is None:
             self._arm_from = (np.asarray(q, dtype=np.float64)[ARMS].copy(), self.clock())
-        target = self.amo.step(q, dq, quat, gyro, self.command())
+        command = self.command()
+        target = self.amo.step(q, dq, quat, gyro, command)
         target[ARMS] = self._arm_q if self._arm_q is not None else self._start_arms()
         tau = self.gravity(target)
+        note = getattr(self.client, "note", None)
+        if note is not None:  # cmd_log's client
+            note(obs={"q": q, "dq": dq, "quat": quat, "gyro": gyro},
+                 command={"navigate_cmd": [command.vx, command.vy, command.vyaw],
+                          "base_height_command": command.torso_height,
+                          "torso_rpy": [command.torso_roll, command.torso_pitch,
+                                        command.torso_yaw],
+                          "target_yaw": command.target_yaw})
         self.client.send_cmd(q_target_pos=target, target_tau=tau,
                              target_kp=KP_SENT, target_kd=KD_SENT, duration=DT, hold_position=False)
         self._last = (target, tau)
@@ -253,6 +264,9 @@ def main(argv=None):
     node.create_subscription(LowState, args.lowstate_topic, state.on_lowstate, 10)
     client = RobotCmdClient(node, num_dof=NUM_MOTORS, control_frequency=1.0 / DT,
                             interpolation_order=0.0)
+    client = cmd_log.from_env(client, {
+        "controller": "amo", "rate_hz": 1.0 / DT, "kp": KP_SENT, "kd": KD_SENT,
+        "tau_ff": args.tau_ff, "walk": args.walk, "hands": args.hands})
     spinner = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
     spinner.start()
     goals = goal_mod.GoalSubscriber(args.goal_host, args.goal_port)
@@ -282,6 +296,8 @@ def main(argv=None):
                   flush=True)
         if controller is not None:
             print(f"goals that asked to walk: {controller.walk_goals}", flush=True)
+        if hasattr(client, "close_log"):
+            client.close_log()
         goals.close()
         node.destroy_node()
         rclpy.shutdown()
