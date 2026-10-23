@@ -20,6 +20,7 @@ setup(
     entry_points={
         "console_scripts": [
             "gear_controller = g1_stack.nodes.gear_controller:main",
+            "amo_controller = g1_stack.nodes.amo_controller:main",
             "joint_probe = g1_stack.nodes.joint_probe:main",
             "dex3_probe = g1_stack.nodes.dex3_probe:main",
             "fixed_goals = g1_stack.nodes.fixed_goals:main",
