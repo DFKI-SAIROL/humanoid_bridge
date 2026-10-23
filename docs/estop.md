@@ -38,7 +38,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 - Arming moves the robot: `initControl_` ramps to the start pose over `duration` (2 s). It zeroes dq and tau: the last client's feedforward never rides on the arming hold, which has no timeout.
 - One entry point `enterStop_(cause)` for every trigger, any thread. It sets the state atomically, snapshots measured q under `mutex_`, then calls `finishControl_`.
 - Mode changes while stopped: an operator e-stop sets the mode it names (hold after damp re-stiffens at the current pose). A fault only turns `hold` into `damp`.
-- Faults and combos fire at onset only (author, 2026-10-19): an operator hold during a lasting fault stays. Combo hold → damp (L1 added) fires; damp → hold (L1 released first) does not.
+- Faults and combos fire at onset only (author, 2026-10-19): an operator hold during a lasting fault stays. Combo hold → damp (R2 added) fires; damp → hold (R2 released first) does not.
 - A non-finite measured q never reaches `/lowcmd`: in a stop frame that joint gets damp at q 0; a tracking frame with any non-finite field is not sent and latches `state_invalid`.
 - Hands: in `LATCHED` the hand timer sends its existing limp frames. `STOPPED` leaves the hands alone.
 - SIGINT or SIGTERM while publishing: latches `damp shutdown` over any earlier cause, sends damp frames for 1 s (`SHUTDOWN_DAMP_S`), then exits silent. Final: no reset, re-arm or mode change. From `DISARMED` or a silent latch it exits silent at once. SIGKILL or a crash: silent at once (G0).
@@ -66,8 +66,8 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 
 | Trigger | Cause | Mode | Latches |
 |---|---|---|---|
-| remote `L1+R1` | `remote_damp` | damp (fixed) | yes |
-| remote `R1+R2` | `remote_hold` | hold (fixed) | yes |
+| remote `R1+R2` | `remote_damp` | damp (fixed) | yes |
+| remote `L1+R1` | `remote_hold` | hold (fixed) | yes |
 | `/estop_damp` (`Trigger`) | `service_damp` | damp (fixed) | yes |
 | `/estop_hold` (`Trigger`) | `service_hold` | hold (fixed) | yes |
 | SIGINT, SIGTERM | `shutdown` | damp (fixed) | yes, final; exits 1 s later |
@@ -86,7 +86,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 
 ## Without a UI
 
-- The remote is the primary e-stop: `L1+R1` damp, `R1+R2` hold.
+- The remote is the primary e-stop: `R1+R2` damp (one hand), `L1+R1` hold.
 - Services: the `ros2 service call` block in `README.md` § 4 (`/estop_damp`, `/estop_hold`, `/estop_reset`, `/stop_control`).
 - The web page lives in `g1_web_commander`; the bridge needs none.
 
@@ -94,7 +94,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 
 Read keys from `/lowstate.wireless_remote` bytes 2–3 (little-endian `uint16`). Drop the `/wirelesscontroller` subscription and `L2+Up+Left`. Trigger on the first sample with a combo held; no debounce.
 
-- `L1+R1` → damp, `R1+R2` → hold (author, 2026-10-19). Neither is a known firmware combo.
+- `R1+R2` → damp, `L1+R1` → hold (author, 2026-10-23; swapped from 2026-10-19 so one hand damps). Neither is a known firmware combo.
 - `L1+R1+R2` matches both: damp wins.
 
 | Firmware combo | Meaning |
@@ -155,7 +155,7 @@ Gantry, robot hanging, operator on the remote:
 - **G1** Arm, move to ready, `/estop_damp`: arms sink slowly; `ros2 topic hz /lowcmd` ≈ 1000.
 - **G2** `/estop_hold`: pose holds; push an arm by hand, it springs back.
 - **G3** After either e-stop: `/robot_cmd` ignored, `/start_control` false, `/estop_reset` true, `/start_control` true.
-- **G4** `L1+R1` damps, `R1+R2` holds, `R1+R2` during damp re-stiffens; firmware does nothing else.
+- **G4** (2026-10-19 combos) `L1+R1` damps, `R1+R2` holds, `R1+R2` during damp re-stiffens; firmware does nothing else.
 - **G5** `/stop_control`: holds, `/start_control` works without reset.
 - **G6** Faults: one `/robot_cmd` without `hold_position` → hold after timeout; `imu_rpy_threshold: 0.05`, tilt the gantry → damp.
 
@@ -169,7 +169,7 @@ Author on the remote, robot hanging. G6-IMU not run (needs `imu_rpy_threshold: 0
 | G1 `/estop_damp` | `kp=0 kd=8` at 1 kHz; a lifted arm sinks back (peak 0.44 rad/s), shoulder yaw stays where pushed |
 | G2 `/estop_hold` | stiff, springs back |
 | G3 latch | `/robot_cmd` ignored (0.0000 rad), arm refused, reset to `STOPPED`, re-arm ok |
-| G4 remote | `L1+R1` damp, `R1+R2` hold, damp<->hold while latched; firmware did nothing else |
+| G4 remote | (2026-10-19 combos) `L1+R1` damp, `R1+R2` hold, damp<->hold while latched; firmware did nothing else |
 | G5 `/stop_control` | `STOPPED hold stop`, re-arm without reset |
 | G6 timeout | `LATCHED hold cmd_timeout` 0.70 s after one command with `duration 0.5` |
 | Mid-motion | shoulder pitch lifted 0.8 rad over 8 s: `L1+R1` sinks back in ~2 s; `R1+R2` freezes, **snappy** (brake profile: `docs/psi0_gates.md` gate 10) |
@@ -194,7 +194,7 @@ $C/g1-commander.sh --workspace <ws> --adapter humanoid_locoman_vla   # own tmux 
 | 3 | remote on, Arm at measured pose | pill `remote`; armed, nothing moves |
 | 4 | `ros2 service call /start_control bridge_interface/srv/SetDefaultPosition "{default_position: [0.0, 0.0]}"` | `success: false`, nothing moves |
 | 5 | armed, no jog: `$B/g1-step-test.py --joint R_ELBOW --delta 0.5` | elbow ramps, no snap; both lines PASS (<= 3 rad/s) |
-| 6 | page DAMP, HOLD; remote `L1+R1`, `R1+R2`; RESET | as on 2026-10-19 |
+| 6 | page DAMP, HOLD; remote `R1+R2` (damp), `L1+R1` (hold); RESET | as on 2026-10-19, combos swapped |
 | 7 | armed, pull the Ethernet cable 5 s, plug it in | log `No /lowstate for 1.2 s: … silent`; robot stays passive after the cable is back; RESET -> `DISARMED` |
 | 8 | `$B/g1-bringup.sh --stop` | `stopped`, no SIGKILL line |
 

@@ -20,8 +20,8 @@ robot_bridge:
     # docs/estop.md. Operator e-stops have a fixed mode; these set the rest.
     estop:
       damp_kd: 8.0                      # float: an integer here fails the load
-      remote_combo_damp: ["L1", "R1"]
-      remote_combo_hold: ["R1", "R2"]
+      remote_combo_damp: ["R1", "R2"]   # one hand: the right shoulder buttons
+      remote_combo_hold: ["L1", "R1"]
       require_remote: true              # arming services refused without the remote's header
       mode:                             # damp | hold
         stop: hold

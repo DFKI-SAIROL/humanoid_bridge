@@ -182,8 +182,8 @@ TEST(Remote, ShortBufferIsNoKeys)
 TEST(Remote, CombosAndDampWins)
 {
     const Config config;
-    EXPECT_EQ(remoteCause(KEY_L1 | KEY_R1, config), Cause::RemoteDamp);
-    EXPECT_EQ(remoteCause(KEY_R1 | KEY_R2, config), Cause::RemoteHold);
+    EXPECT_EQ(remoteCause(KEY_R1 | KEY_R2, config), Cause::RemoteDamp);
+    EXPECT_EQ(remoteCause(KEY_L1 | KEY_R1, config), Cause::RemoteHold);
     EXPECT_EQ(remoteCause(KEY_L1 | KEY_R1 | KEY_R2, config), Cause::RemoteDamp);
     EXPECT_EQ(remoteCause(KEY_R1, config), Cause::None);
     EXPECT_EQ(remoteCause(KEY_L2 | KEY_B, config), Cause::None);

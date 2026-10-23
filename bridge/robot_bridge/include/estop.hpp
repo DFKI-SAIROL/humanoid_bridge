@@ -47,8 +47,8 @@ namespace sairol_bridge::estop
     struct Config
     {
         float_t damp_kd{8.0f};
-        uint16_t combo_damp{KEY_L1 | KEY_R1};
-        uint16_t combo_hold{KEY_R1 | KEY_R2};
+        uint16_t combo_damp{KEY_R1 | KEY_R2};  // one hand
+        uint16_t combo_hold{KEY_L1 | KEY_R1};
         Mode stop{Mode::Hold};
         Mode imu{Mode::Damp};
         Mode state_loss{Mode::Damp};
@@ -81,8 +81,8 @@ namespace sairol_bridge::estop
     // undone 1000 times a second. `last` is the caller's per-source memory.
     // Fault: fires when it starts or changes kind.
     Cause faultOnset(Cause current, Cause &last);
-    // Remote: fires on a press from no combo, and on hold -> damp (L1 added).
-    // Damp -> hold (L1 released first) does not fire.
+    // Remote: fires on a press from no combo, and on hold -> damp (R2 added).
+    // Damp -> hold (R2 released first) does not fire.
     Cause remoteOnset(Cause current, Cause &last);
 
     struct MotorFrame

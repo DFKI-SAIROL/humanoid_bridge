@@ -168,8 +168,8 @@ uses; it calls the service. Service only: no code handles a key.
 - `T1_bridge` and `H1_bridge` have key handlers, but their subscriptions are commented out.
 - `R2 + A` (G1, H1) and `LT + A` (T1): the example starts its policy once control is on. Firmware combos: `docs/estop.md`.
 
-G1 e-stop, latched until `/estop_reset` (`docs/estop.md`): `L1 + R1` damp,
-`R1 + R2` hold. Do not use `L2 + Up`: it is the firmware's lock-stand combo.
+G1 e-stop, latched until `/estop_reset` (`docs/estop.md`): `R1 + R2` damp
+(one hand), `L1 + R1` hold. Do not use `L2 + Up`: it is the firmware's lock-stand combo.
 
 The bridge has no UI. The G1 web page (e-stop, arm, processes, jog, camera) is
 [`SiweiJu/g1_web_commander`](https://github.com/SiweiJu/g1_web_commander), built in the same workspace.

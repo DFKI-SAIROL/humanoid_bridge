@@ -22,7 +22,7 @@ from g1_sim.model import DEFAULT_MJCF
 from robot_bridge.cmd_client import RobotCmdClient
 
 NUM_MOTORS = 29
-KEY_R1, KEY_L1 = 1 << 0, 1 << 1
+KEY_R1, KEY_L1, KEY_R2 = 1 << 0, 1 << 1, 1 << 4
 ELBOWS = (18, 25)
 TOL = 0.05  # rad
 RAMP_SECONDS = 3.0  # `duration` 2.0 plus margin
@@ -142,11 +142,11 @@ class Driver:
 
         self.check_camera()
 
-        self.keys.publish(UInt16(data=KEY_L1 | KEY_R1))  # remote_combo_damp
+        self.keys.publish(UInt16(data=KEY_R1 | KEY_R2))  # remote_combo_damp
         self.spin(0.5)
         self.keys.publish(UInt16(data=0))
         state = str(self.state)
-        self.check("remote L1+R1 latches damp", state.startswith("LATCHED damp"), state)
+        self.check("remote R1+R2 latches damp", state.startswith("LATCHED damp"), state)
 
 
 def main():

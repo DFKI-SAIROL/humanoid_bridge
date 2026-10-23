@@ -304,9 +304,9 @@ class Driver:
         self.check("refusals published nothing", self.count == count, f"{self.count - count} frames")
 
         # Remote damp while disarmed: latches, publishes nothing.
-        self.press(KEY_L1 | KEY_R1)
+        self.press(KEY_R1 | KEY_R2)
         self.press(0)
-        self.check_state("L1+R1 while disarmed latches silent", "LATCHED damp remote_damp silent")
+        self.check_state("R1+R2 while disarmed latches silent", "LATCHED damp remote_damp silent")
         count = self.count
         self.spin(0.5)
         self.check(
@@ -349,8 +349,8 @@ class Driver:
         self.check("start_control refused while latched", not self.start(0.2).success)
 
         # Operator hold over damp, by remote.
-        self.press(KEY_R1 | KEY_R2)
-        self.check_state("R1+R2 re-stiffens to hold", "LATCHED hold remote_hold")
+        self.press(KEY_L1 | KEY_R1)
+        self.check_state("L1+R1 re-stiffens to hold", "LATCHED hold remote_hold")
         self.check("hold frame: config gains, q kept", *self.frame(kp, kd, q=0.123))
         self.check("estop_reset refused while combo held", not self.client.estop_reset().success)
         self.press(0)
@@ -435,9 +435,9 @@ class Driver:
         self.check("estop_reset refused while tilted", not self.client.estop_reset().success)
 
         # Operator hold while the fault lasts: it wins and stays (faults fire at onset).
-        self.press(KEY_R1 | KEY_R2)
+        self.press(KEY_L1 | KEY_R1)
         self.press(0)
-        self.check_state("R1+R2 during a lasting fault -> hold", "LATCHED hold remote_hold")
+        self.check_state("L1+R1 during a lasting fault -> hold", "LATCHED hold remote_hold")
         self.spin(0.5)
         self.check(
             "hold stays while the fault lasts",
