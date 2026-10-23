@@ -3,6 +3,7 @@
 Inputs: /g1_sim/gantry (Bool, hold the pelvis), /g1_sim/remote (Bool, remote header on/off),
 /g1_sim/keys (UInt16, remote key mask), /g1_sim/reset (Empty, back on the gantry).
 Parameter: mjcf (read-only), the absolute path of the loaded model.
+A model with Dex3 hands: /dex3/{left,right}/state at 100 Hz; reads /dex3/{left,right}/cmd.
 """
 
 import argparse
@@ -18,17 +19,26 @@ from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.utilities import remove_ros_args
 from std_msgs.msg import Bool, Empty, UInt16
-from unitree_hg.msg import LowCmd, LowState
+from unitree_hg.msg import HandCmd, HandState, LowCmd, LowState, MotorState
 
 from g1_camera import wire
 from g1_camera.server import CameraServer
 from g1_sim.camera import SimCamera
 from g1_sim.guard import FIX, not_loopback
-from g1_sim.model import DEFAULT_MJCF, NUM_JOINT, Command, G1Sim
+from g1_sim.model import (
+    DEFAULT_MJCF,
+    HAND_SIDES,
+    NUM_HAND_JOINT,
+    NUM_JOINT,
+    Command,
+    G1Sim,
+    HandCommand,
+)
 
 MODE_MACHINE = 5  # as fake_g1; the bridge logs "G1 type:" once it is non-zero
 LAG_WARN_S = 0.05  # the bridge damps on /lowstate older than 0.2 s
 VIEWER_PERIOD_S = 0.02
+HAND_PERIOD_S = 0.01  # 100 Hz, as the Dex3 and fake_dex3; the bridge aborts on state older than 0.2 s
 
 
 class G1SimNode(Node):
@@ -48,6 +58,17 @@ class G1SimNode(Node):
         self.create_subscription(UInt16, "/g1_sim/keys", self._on_keys, 10)
         self.create_subscription(Empty, "/g1_sim/reset", self._on_reset, 10)
 
+        self.hand_cmds = {}  # side -> HandCommand; empty: the fingers are slack
+        self.hand_publishers = {}
+        self.hand_states = {}
+        for side in HAND_SIDES if sim.hands else ():
+            self.hand_publishers[side] = self.create_publisher(HandState, f"/dex3/{side}/state", 10)
+            self.hand_states[side] = HandState(motor_state=[MotorState() for _ in range(NUM_HAND_JOINT)])
+            self.create_subscription(
+                HandCmd, f"/dex3/{side}/cmd", lambda msg, s=side: self._on_hand_cmd(s, msg), 10
+            )
+        self.hand_due = 0.0  # sim time of the next hand state
+
         self.state = LowState()
         self.state.mode_machine = MODE_MACHINE
         self.state.wireless_remote[0] = 0x55  # header bytes as the real G1 sends them
@@ -63,6 +84,21 @@ class G1SimNode(Node):
             cmd.kp[i], cmd.kd[i], cmd.tau[i] = m.kp, m.kd, m.tau
         with self.lock:
             self.cmd = cmd
+
+    def _on_hand_cmd(self, side, msg):
+        cmd = HandCommand()
+        for i in range(min(len(msg.motor_cmd), NUM_HAND_JOINT)):  # unbounded MotorCmd[] on the wire
+            m = msg.motor_cmd[i]
+            cmd.q[i], cmd.dq[i], cmd.kp[i], cmd.kd[i], cmd.tau[i] = m.q, m.dq, m.kp, m.kd, m.tau
+        with self.lock:
+            self.hand_cmds = {**self.hand_cmds, side: cmd}
+
+    def _publish_hands(self, states):
+        for side, s in states.items():
+            msg = self.hand_states[side]
+            for i, ms in enumerate(msg.motor_state):
+                ms.q, ms.dq, ms.tau_est = float(s["q"][i]), float(s["dq"][i]), float(s["tau_est"][i])
+            self.hand_publishers[side].publish(msg)
 
     def _on_gantry(self, msg):
         with self.lock:
@@ -103,9 +139,15 @@ class G1SimNode(Node):
                     self.sim.reset()
                     self.sim.gantry = True
                     self.reset_pending = False
-                self.sim.step(self.cmd)
+                    self.hand_due = 0.0  # the sim clock starts again
+                self.sim.step(self.cmd, self.hand_cmds)
                 state = self.sim.state()
+                hands = {}
+                if self.hand_publishers and state["time"] >= self.hand_due:
+                    self.hand_due = state["time"] + HAND_PERIOD_S
+                    hands = {side: self.sim.hand_state(side) for side in self.hand_publishers}
             self._publish(state)
+            self._publish_hands(hands)
             due += dt
             lag = time.monotonic() - due
             if lag > LAG_WARN_S:
@@ -160,7 +202,7 @@ def start_camera(node, args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mjcf", default=str(DEFAULT_MJCF), help="mjlab g1.xml ($G1_MJCF)")
+    parser.add_argument("--mjcf", default=str(DEFAULT_MJCF), help="mjlab g1.xml, or unitree g1_29dof_with_hand.xml for Dex3 ($G1_MJCF)")
     parser.add_argument("--clearance", type=float, default=0.05, help="feet above floor, m")
     parser.add_argument("--no-gantry", action="store_true", help="start on the floor, unheld")
     parser.add_argument(
@@ -187,7 +229,8 @@ def main(argv=None):
     node = G1SimNode(sim, args.mjcf)
     node.get_logger().info(
         f"{args.mjcf}: {sim.model.nq} qpos, dt {sim.dt * 1000:.0f} ms, "
-        f"gantry {'on' if sim.gantry else 'off'} at {sim.anchor[2]:.3f} m"
+        f"gantry {'on' if sim.gantry else 'off'} at {sim.anchor[2]:.3f} m, "
+        f"{'Dex3 on /dex3/*' if sim.hands else 'no Dex3'}"
     )
     # Both before the physics thread: GL setup stalls it.
     server = None if args.no_camera else start_camera(node, args)

@@ -7,10 +7,13 @@ mujoco = pytest.importorskip("mujoco")
 
 from g1_sim.model import (  # noqa: E402
     DEFAULT_MJCF,
+    HAND_JOINTS,
+    HAND_SIDES,
     JOINT_NAMES,
     NUM_JOINT,
     Command,
     G1Sim,
+    HandCommand,
     rpy_from_quat,
 )
 
@@ -106,3 +109,51 @@ def test_rpy_from_quat_pitch():
     a = 0.4
     q = [np.cos(a / 2), 0.0, np.sin(a / 2), 0.0]
     assert rpy_from_quat(q) == pytest.approx([0.0, a, 0.0])
+
+
+# unitree's G1 with Dex3 hands, beside mjlab's (fetch_assets.sh --model unitree).
+DEX3_MJCF = DEFAULT_MJCF.parent.parent / "g1_description" / "g1_29dof_with_hand.xml"
+dex3_only = pytest.mark.skipif(not DEX3_MJCF.is_file(), reason=f"no {DEX3_MJCF}")
+
+
+@pytest.fixture
+def dex3():
+    return G1Sim(DEX3_MJCF)
+
+
+def test_mjlab_has_no_hands(sim):
+    assert sim.hands is False
+    assert sim.hand_qadr == {}
+
+
+@dex3_only
+def test_dex3_model_has_both_hands_in_the_bridge_order(dex3):
+    assert dex3.hands is True
+    for side in HAND_SIDES:
+        names = [dex3.model.joint(dex3.model.jnt_qposadr.tolist().index(a)).name for a in dex3.hand_qadr[side]]
+        assert names == list(HAND_JOINTS[side])
+    assert dex3.hand_effort["left"][0] == pytest.approx(2.45), "thumb_0 from the MJCF"
+    assert dex3.dt == pytest.approx(0.002)
+
+
+@dex3_only
+def test_dex3_fingers_track_a_hand_command_and_the_body_still_holds(dex3):
+    hand = HandCommand()
+    hand.q[:] = [0.3, 0.3, 0.6, -0.5, -0.5, -0.5, -0.5]
+    hand.kp[:], hand.kd[:] = 2.0, 0.1
+    body = hold(np.zeros(NUM_JOINT))
+    for _ in range(int(2.0 / dex3.dt)):
+        dex3.step(body, {"left": hand})
+    left, right = dex3.hand_state("left"), dex3.hand_state("right")
+    assert np.abs(left["q"] - hand.q).max() < 0.05
+    assert not right["tau_est"].any(), "no command: the right hand is slack"
+    assert np.abs(dex3.state()["q"]).max() < 0.1
+
+
+@dex3_only
+def test_dex3_finger_torque_is_clipped_to_the_mjcf_effort(dex3):
+    hand = HandCommand()
+    hand.q[:], hand.kp[:] = 1.0, 1e3
+    dex3.step(Command(), {"left": hand, "right": hand})
+    for side in HAND_SIDES:
+        assert np.all(np.abs(dex3.hand_state(side)["tau_est"]) <= dex3.hand_effort[side] + 1e-9)

@@ -4,10 +4,11 @@ MuJoCo G1 in place of the robot: publishes `/lowstate` at 500 Hz, reads `/lowcmd
 
 | | |
 |---|---|
-| Model | mjlab `g1.xml` (29 DoF rev 1.0), the commander page's model; `$G1_MJCF` or `--mjcf`; `ros2 param get /g1_sim mjcf` prints the loaded file |
+| Model | mjlab `g1.xml` (29 DoF rev 1.0, rubber hands), or unitree `g1_29dof_with_hand.xml` (Dex3); `$G1_MJCF` or `--mjcf`; `ros2 param get /g1_sim mjcf` prints the loaded file |
 | Added | floor, pelvis IMU sensors, motor armature, joint friction, `d435` camera on `torso_link` |
 | Motors | `tau + kp(q - q_j) + kd(dq - dq_j)` per `/lowcmd` motor, clipped to its effort; mode 0 = no torque |
 | `LowState` | remote header `0x55 0x51`, `mode_machine` 5, IMU quaternion/rpy/gyro/accel, `tick` = sim ms |
+| Dex3 | a model with both hands' joints: `/dex3/{left,right}/state` (`HandState`, 7 motors) at 100 Hz; `/dex3/{left,right}/cmd` (`HandCmd`) PD per finger, clipped to the MJCF effort; slack until the first command |
 | Camera | `d435` rendered at 30 Hz, served by `g1_camera.CameraServer`: ZMQ 5556, preview `:5557/frame.jpg`, on 127.0.0.1 (`--camera-bind`); `--no-camera` |
 | Viewer | MuJoCo window when `$DISPLAY` is set; in docker: `-e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:ro` |
 | Gantry | spring on the pelvis, feet 5 cm up; on at start |
@@ -18,6 +19,7 @@ MuJoCo G1 in place of the robot: publishes `/lowstate` at 500 Hz, reads `/lowcmd
 
 ```bash
 g1_web_commander/scripts/fetch_assets.sh     # mjlab g1.xml -> ~/.local/share/g1_web_commander/g1_mjlab
+g1_web_commander/scripts/fetch_assets.sh --model unitree   # Dex3: g1_description/g1_29dof_with_hand.xml
 docker build -t g1-sim:humble robot_stacks/g1/g1_sim   # ROS 2 Humble, mujoco 3.3.6, MUJOCO_GL=egl
 ```
 

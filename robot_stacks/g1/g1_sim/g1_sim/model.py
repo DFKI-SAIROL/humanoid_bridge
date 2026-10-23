@@ -1,4 +1,4 @@
-"""MuJoCo G1 on mjlab's g1.xml: PD from a LowCmd, LowState fields out. No ROS."""
+"""MuJoCo G1 on mjlab's g1.xml (or unitree's with Dex3 hands): PD from LowCmd and HandCmd. No ROS."""
 
 import os
 import pathlib
@@ -25,6 +25,18 @@ JOINT_NAMES = (
     "right_wrist_yaw_joint",
 )  # fmt: skip
 NUM_JOINT = len(JOINT_NAMES)
+
+# Dex3 motor order (G1_config.yaml {left,right}_hand_joint_names); unitree g1_29dof_with_hand.xml names.
+HAND_SIDES = ("left", "right")
+HAND_JOINTS = {
+    side: tuple(f"{side}_hand_{finger}_joint"
+                for finger in ("thumb_0", "thumb_1", "thumb_2", "middle_0", "middle_1", "index_0", "index_1"))
+    for side in HAND_SIDES
+}  # fmt: skip
+NUM_HAND_JOINT = 7
+HAND_EFFORT = 1.4  # Nm, the MJCF's actuatorfrcrange for a finger without one
+HAND_DAMPING = 0.01  # Nm s/rad: a slack finger settles instead of ringing
+HAND_ARMATURE = 0.002  # kg m^2, reflected rotor inertia (estimate): without it kd >= 0.1 rings at 2 ms
 
 # (armature kg m^2, effort limit Nm) per motor, from mjlab g1_constants.py.
 _5020 = (0.003609725, 25.0)
@@ -67,19 +79,24 @@ def build_spec(mjcf=DEFAULT_MJCF):
     if not (mjcf.parent / spec.meshdir).is_dir() and (mjcf.parent / "meshes").is_dir():
         spec.meshdir = "meshes"  # fetch_assets.sh renames mjlab's assets/ to meshes/
 
-    spec.add_texture(name="floor", type=mujoco.mjtTexture.mjTEXTURE_2D,
-                     builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER, width=300, height=300,
-                     rgb1=[0.2, 0.3, 0.4], rgb2=[0.1, 0.2, 0.3])  # fmt: skip
-    floor = spec.add_material(name="floor", texrepeat=[5, 5], texuniform=True)
-    floor.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = "floor"
-    spec.worldbody.add_geom(
-        name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, size=[0, 0, 0.05], material="floor"
-    )
-    spec.worldbody.add_light(pos=[0, 0, 4], dir=[0, 0, -1], diffuse=[0.7, 0.7, 0.7])
+    if "floor" not in {geom.name for geom in spec.geoms}:  # unitree's scene MJCFs bring their own
+        spec.add_texture(name="floor", type=mujoco.mjtTexture.mjTEXTURE_2D,
+                         builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER, width=300, height=300,
+                         rgb1=[0.2, 0.3, 0.4], rgb2=[0.1, 0.2, 0.3])  # fmt: skip
+        floor = spec.add_material(name="floor", texrepeat=[5, 5], texuniform=True)
+        floor.textures[mujoco.mjtTextureRole.mjTEXROLE_RGB] = "floor"
+        spec.worldbody.add_geom(
+            name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, size=[0, 0, 0.05], material="floor"
+        )
+        spec.worldbody.add_light(pos=[0, 0, 4], dir=[0, 0, -1], diffuse=[0.7, 0.7, 0.7])
     for name in JOINT_NAMES:
         joint = spec.joint(name)
         joint.armature = motor(name)[0]
         joint.frictionloss, joint.damping = FRICTIONLOSS, DAMPING
+    names = {joint.name for joint in spec.joints}
+    for name in (n for side in HAND_SIDES for n in HAND_JOINTS[side] if n in names):
+        joint = spec.joint(name)
+        joint.damping, joint.armature = HAND_DAMPING, HAND_ARMATURE
 
     spec.add_sensor(name="imu_quat", type=mujoco.mjtSensor.mjSENS_FRAMEQUAT,
                     objtype=mujoco.mjtObj.mjOBJ_SITE, objname="imu_in_pelvis")  # fmt: skip
@@ -121,8 +138,22 @@ class Command:
         self.tau = np.zeros(NUM_JOINT)
 
 
+class HandCommand:
+    """One HandCmd's 7 finger targets; zero gains and torque until the first one: slack."""
+
+    def __init__(self):
+        self.q = np.zeros(NUM_HAND_JOINT)
+        self.dq = np.zeros(NUM_HAND_JOINT)
+        self.kp = np.zeros(NUM_HAND_JOINT)
+        self.kd = np.zeros(NUM_HAND_JOINT)
+        self.tau = np.zeros(NUM_HAND_JOINT)
+
+
 class G1Sim:
-    """Steps the G1 with the motor PD law; a gantry holds the pelvis while it is on."""
+    """Steps the G1 with the motor PD law; a gantry holds the pelvis while it is on.
+
+    `hands`: the MJCF has both Dex3 hands; then `step` also takes a HandCommand per side.
+    """
 
     GANTRY_KP = (4000.0, 400.0)  # N/m, Nm/rad
     GANTRY_KD = (400.0, 40.0)
@@ -135,6 +166,19 @@ class G1Sim:
         self.qadr = np.array([j.qposadr[0] for j in joints])
         self.vadr = np.array([j.dofadr[0] for j in joints])
         self.effort = np.array([motor(n)[1] for n in JOINT_NAMES])
+        self.hands = all(
+            mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, n) >= 0
+            for side in HAND_SIDES for n in HAND_JOINTS[side]
+        )  # fmt: skip
+        self.hand_qadr, self.hand_vadr, self.hand_effort, self.hand_tau = {}, {}, {}, {}
+        for side in HAND_SIDES if self.hands else ():
+            fingers = [m.joint(n) for n in HAND_JOINTS[side]]
+            self.hand_qadr[side] = np.array([j.qposadr[0] for j in fingers])
+            self.hand_vadr[side] = np.array([j.dofadr[0] for j in fingers])
+            self.hand_effort[side] = np.array(
+                [m.jnt_actfrcrange[j.id][1] if m.jnt_actfrclimited[j.id] else HAND_EFFORT for j in fingers]
+            )
+            self.hand_tau[side] = np.zeros(NUM_HAND_JOINT)
         self.pelvis = m.body("pelvis").id
         self.mass = float(m.body_subtreemass[self.pelvis])
         self.sensor = {n: slice(m.sensor(n).adr[0], m.sensor(n).adr[0] + m.sensor(n).dim[0])
@@ -161,10 +205,12 @@ class G1Sim:
         self.anchor = np.array([0.0, 0.0, 1.0 - lowest + self.clearance])
         self.data.qpos[:3] = self.anchor
         self.tau[:] = 0.0
+        for tau in self.hand_tau.values():
+            tau[:] = 0.0
         mujoco.mj_forward(self.model, self.data)
 
-    def step(self, cmd):
-        """One physics step under `cmd`; motor torques clipped to the motor's effort."""
+    def step(self, cmd, hand_cmds=None):
+        """One physics step under `cmd` and `hand_cmds` ({side: HandCommand}); torques clipped."""
         d = self.data
         q, dq = d.qpos[self.qadr], d.qvel[self.vadr]
         tau = cmd.tau + cmd.kp * (cmd.q - q) + cmd.kd * (cmd.dq - dq)
@@ -172,6 +218,11 @@ class G1Sim:
         self.tau = np.clip(tau, -self.effort, self.effort)
         d.qfrc_applied[:] = 0.0
         d.qfrc_applied[self.vadr] = self.tau
+        for side, hand in (hand_cmds or {}).items() if self.hands else ():
+            qadr, vadr, limit = self.hand_qadr[side], self.hand_vadr[side], self.hand_effort[side]
+            torque = hand.tau + hand.kp * (hand.q - d.qpos[qadr]) + hand.kd * (hand.dq - d.qvel[vadr])
+            self.hand_tau[side] = np.clip(torque, -limit, limit)
+            d.qfrc_applied[vadr] = self.hand_tau[side]
         d.xfrc_applied[self.pelvis] = self._gantry_wrench() if self.gantry else 0.0
         mujoco.mj_step(self.model, d)
 
@@ -185,6 +236,15 @@ class G1Sim:
         mujoco.mju_subQuat(err, np.array([1.0, 0, 0, 0]), d.qpos[3:7])
         torque = kr * err - dr * d.qvel[3:6]  # free-joint angular velocity is in the body frame
         return np.concatenate([force, d.xmat[self.pelvis].reshape(3, 3) @ torque])
+
+    def hand_state(self, side):
+        """HandState fields of one Dex3: motor q/dq/tau_est (7)."""
+        d = self.data
+        return {
+            "q": d.qpos[self.hand_qadr[side]].copy(),
+            "dq": d.qvel[self.hand_vadr[side]].copy(),
+            "tau_est": self.hand_tau[side].copy(),
+        }
 
     def state(self):
         """LowState fields: motor q/dq/ddq/tau_est (29) and the pelvis IMU."""
