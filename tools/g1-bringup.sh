@@ -18,6 +18,9 @@
 # Safe to re-run: with one G1_bridge already up it only arms; with two or more
 # it refuses (each writes /lowcmd). Only bridges in this network namespace
 # count: a test's bridge in its own namespace cannot reach the robot.
+#
+# --foreground (for a supervisor such as g1_web_commander): same checks and
+# release, then execs G1_bridge in this process; never arms.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +36,7 @@ ARM_VALUES=""
 ROBOT_IS_CLEAR=0
 DO_RELEASE=1
 DO_STOP=0
+FOREGROUND=0
 DRY_RUN=0
 WAIT_SECONDS=20
 NUM_JOINT=29
@@ -52,6 +56,9 @@ Options:
   --arm-from "<29 nums>" arm to an explicit pose, length-checked here
   --robot-is-clear       required for any --arm-*. Gantry, e-stop, safety gate first
   --stop                 stop every G1_bridge (SIGINT, then SIGKILL), start nothing
+  --foreground           release, then exec G1_bridge in this process (log on stdout);
+                         refuses any --arm-* and a running G1_bridge. Stop: SIGINT
+                         to the process group
   --wait <s>             seconds to wait for the bridge (default 20)
   --dry-run              print every command, run none
   -h, --help             this text
@@ -78,6 +85,7 @@ while [ $# -gt 0 ]; do
         --arm-from) ARM_MODE="explicit"; ARM_VALUES="${2:?--arm-from needs 29 numbers}"; shift ;;
         --robot-is-clear) ROBOT_IS_CLEAR=1 ;;
         --stop)    DO_STOP=1 ;;
+        --foreground) FOREGROUND=1 ;;
         --wait)    WAIT_SECONDS="${2:?--wait needs seconds}"; shift ;;
         --dry-run) DRY_RUN=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -141,6 +149,11 @@ fi
 
 # --- argument checks -------------------------------------------------------
 # Before the environment checks: a safety refusal must not depend on ROS.
+if [ "$FOREGROUND" = 1 ] && [ -n "$ARM_MODE" ]; then
+    echo "refusing --arm-* with --foreground: the bridge never returns to arm it." >&2
+    echo "Arm from the page, or with: ros2 service call /start_control ..." >&2
+    exit 2
+fi
 if [ -n "$ARM_MODE" ] && [ "$ROBOT_IS_CLEAR" != 1 ]; then
     echo "refusing to arm without --robot-is-clear." >&2
     echo "start_control ramps all $NUM_JOINT joints, legs included, over 2 s." >&2
@@ -200,6 +213,11 @@ if [ "${#running[@]}" -gt 1 ]; then
     echo "Stop them: $0 --stop" >&2
     exit 1
 fi
+if [ "${#running[@]}" -eq 1 ] && [ "$FOREGROUND" = 1 ]; then
+    echo "refused: G1_bridge already runs (pid ${running[0]}); --foreground would start a second." >&2
+    echo "Stop it: $0 --stop" >&2
+    exit 1
+fi
 if [ "${#running[@]}" -eq 1 ]; then
     say "G1_bridge already runs (pid ${running[0]}): no release, no second bridge"
     log="$(readlink "/proc/${running[0]}/fd/1" 2>/dev/null || true)"
@@ -220,6 +238,12 @@ else
     fi
 
     # --- 2. start the bridge -----------------------------------------------
+    if [ "$FOREGROUND" = 1 ]; then
+        say "exec G1_bridge in the foreground; stop: SIGINT to this process group"
+        # exec keeps the supervisor's pid and group; its signals reach `ros2 run` and G1_bridge.
+        run exec ros2 run robot_bridge G1_bridge --ros-args --params-file "$PARAMS"
+        exit 0   # --dry-run only
+    fi
     say "starting G1_bridge"
     BRIDGE_LOG="$(mktemp -t g1-bringup-XXXXXX.log)"
     if [ "$DRY_RUN" = 1 ]; then

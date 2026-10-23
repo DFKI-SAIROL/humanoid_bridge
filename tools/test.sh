@@ -151,9 +151,12 @@ run_in_docker() {
     inner+=(--rmw "$RMW_CHOICE")
     [ "$ALLOW_SKIP" = 1 ] && inner+=(--allow-skip)
     echo "docker: $image, workspace $ws"
+    # Rootless docker: container uid 0 is this user; this uid would map to one that cannot write $ws.
+    local user="$(id -u):$(id -g)"
+    if docker info --format '{{.SecurityOptions}}' 2>/dev/null | grep -q rootless; then user=0:0; fi
     # shellcheck disable=SC2016  # expanded in the container
     exec docker run --rm --init --network none \
-        --user "$(id -u):$(id -g)" -e HOME=/tmp -e PYTEST_ADDOPTS="-p no:cacheprovider" \
+        --user "$user" -e HOME=/tmp -e PYTEST_ADDOPTS="-p no:cacheprovider" \
         -v "$ws:/ws" -v "$REPO:/ws/src/humanoid_bridge:ro" \
         -w /ws/src/humanoid_bridge \
         "$image" bash -c '

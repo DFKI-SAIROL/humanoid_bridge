@@ -4,7 +4,7 @@ MuJoCo G1 in place of the robot: publishes `/lowstate` at 500 Hz, reads `/lowcmd
 
 | | |
 |---|---|
-| Model | mjlab `g1.xml` (29 DoF rev 1.0), the commander page's model; `$G1_MJCF` |
+| Model | mjlab `g1.xml` (29 DoF rev 1.0), the commander page's model; `$G1_MJCF` or `--mjcf`; `ros2 param get /g1_sim mjcf` prints the loaded file |
 | Added | floor, pelvis IMU sensors, motor armature, joint friction, `d435` camera on `torso_link` |
 | Motors | `tau + kp(q - q_j) + kd(dq - dq_j)` per `/lowcmd` motor, clipped to its effort; mode 0 = no torque |
 | `LowState` | remote header `0x55 0x51`, `mode_machine` 5, IMU quaternion/rpy/gyro/accel, `tick` = sim ms |

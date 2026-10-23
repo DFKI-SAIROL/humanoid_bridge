@@ -2,16 +2,19 @@
 
 Inputs: /g1_sim/gantry (Bool, hold the pelvis), /g1_sim/remote (Bool, remote header on/off),
 /g1_sim/keys (UInt16, remote key mask), /g1_sim/reset (Empty, back on the gantry).
+Parameter: mjcf (read-only), the absolute path of the loaded model.
 """
 
 import argparse
 import os
+import pathlib
 import sys
 import threading
 import time
 
 import numpy as np
 import rclpy
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.node import Node
 from rclpy.utilities import remove_ros_args
 from std_msgs.msg import Bool, Empty, UInt16
@@ -29,8 +32,11 @@ VIEWER_PERIOD_S = 0.02
 
 
 class G1SimNode(Node):
-    def __init__(self, sim):
+    def __init__(self, sim, mjcf):
         super().__init__("g1_sim")
+        self.declare_parameter(
+            "mjcf", str(pathlib.Path(mjcf).resolve()), ParameterDescriptor(read_only=True)
+        )
         self.sim = sim
         self.lock = threading.Lock()
         self.cmd = Command()
@@ -178,7 +184,7 @@ def main(argv=None):
 
     sim = G1Sim(args.mjcf, clearance=0.0 if args.no_gantry else args.clearance)
     sim.gantry = not args.no_gantry
-    node = G1SimNode(sim)
+    node = G1SimNode(sim, args.mjcf)
     node.get_logger().info(
         f"{args.mjcf}: {sim.model.nq} qpos, dt {sim.dt * 1000:.0f} ms, "
         f"gantry {'on' if sim.gantry else 'off'} at {sim.anchor[2]:.3f} m"

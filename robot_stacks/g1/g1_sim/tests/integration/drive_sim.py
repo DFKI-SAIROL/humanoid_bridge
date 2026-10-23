@@ -11,12 +11,14 @@ import urllib.request
 
 import rclpy
 import yaml
+from rcl_interfaces.srv import GetParameters
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String, UInt16
 from unitree_hg.msg import LowState
 
 from g1_camera import wire
 from g1_camera.client import CameraClient
+from g1_sim.model import DEFAULT_MJCF
 from robot_bridge.cmd_client import RobotCmdClient
 
 NUM_MOTORS = 29
@@ -33,6 +35,8 @@ def load_params(path):
     return {
         "kp": [float(params[n]["kp"]) for n in names],
         "kd": [float(params[n]["kd"]) for n in names],
+        "q_min": [float(params[n]["q_min"]) for n in names],
+        "q_max": [float(params[n]["q_max"]) for n in names],
         "ready_q": [float(v) for v in params["ready_q"]],
     }
 
@@ -92,19 +96,38 @@ class Driver:
             self.client.send_cmd(q_target_pos=target)
             self.spin(0.02)
 
+    def check_mjcf(self):
+        client = self.node.create_client(GetParameters, "/g1_sim/get_parameters")
+        client.wait_for_service(timeout_sec=5.0)
+        future = client.call_async(GetParameters.Request(names=["mjcf"]))
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
+        got = future.result().values[0].string_value if future.result() else None
+        want = str(DEFAULT_MJCF.resolve())
+        self.check("parameter mjcf is the loaded file", got == want, f"{got}, want {want}")
+
     def run(self):
         self.spin(2.0)
+        self.check_mjcf()
         self.check("/lowstate from the sim", self.low is not None)
         self.check("bridge DISARMED", self.state == "DISARMED", str(self.state))
         if self.low is None:
             return
         self.check("remote header", bytes(self.low.wireless_remote[:2]) == b"\x55\x51")
 
-        ready = self.params["ready_q"]
-        reply = self.client.start_control(default_position=ready, timeout_sec=30.0)
-        self.check("start_control", reply.success, reply.message)
+        # As the commander arms: to the measured pose, then Ready.
+        measured = [m.q for m in self.low.motor_state[:NUM_MOTORS]]
+        lo, hi = self.params["q_min"], self.params["q_max"]
+        past = [i for i in range(NUM_MOTORS) if not lo[i] <= measured[i] <= hi[i]]
+        print(f"note  measured joints past their range: {past}", flush=True)
+        reply = self.client.start_control(default_position=measured, timeout_sec=30.0)
+        self.check("start_control from the measured pose", reply.success, reply.message)
         self.spin(RAMP_SECONDS)
         self.check("bridge ARMED", self.state == "ARMED", str(self.state))
+
+        ready = self.params["ready_q"]
+        reply = self.client.ready_position_control()
+        self.check("ready_position_control", reply.success, reply.message)
+        self.spin(RAMP_SECONDS)
         q = [m.q for m in self.low.motor_state[:NUM_MOTORS]]
         worst = max(range(NUM_MOTORS), key=lambda i: abs(q[i] - ready[i]))
         err = abs(q[worst] - ready[worst])

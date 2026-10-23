@@ -37,6 +37,10 @@ if ! python3 "$HERE/drive_sim.py" "$PARAMS"; then
     echo; echo "bridge log, last 30 lines:"; tail -30 "$OUT/bridge.log"
     echo; echo "sim log, last 10 lines:"; tail -10 "$OUT/sim.log"; exit 1
 fi
+# No target here leaves its range: a clamp is a seed or ramp bug (g1_sim rests waist pitch past q_max).
+if grep "outside \[" "$OUT/bridge.log"; then
+    echo "FAIL  the bridge clamped a target"; exit 1
+fi
 if grep -q "behind real time" "$OUT/sim.log"; then
     echo "WARN: the sim fell behind real time:"; grep "behind real time" "$OUT/sim.log" | tail -3
 fi

@@ -333,10 +333,13 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
         // dq and tau too: the last /robot_cmd's would otherwise ride on the hold, with no timeout.
         for (int i = 0; i < numJoint_; ++i)
         {
-            lastCommand_.motor_cmd[i].q = currentState_.motor_state[i].q;
+            // Gate 1 clamps every frame anyway; a pose resting past a limit (g1_sim's waist
+            // pitch at 0.529) would otherwise log "outside [...]: clamped" every second.
+            const float_t q = std::clamp(currentState_.motor_state[i].q, joints_[i].q_min, joints_[i].q_max);
+            lastCommand_.motor_cmd[i].q = q;
             lastCommand_.motor_cmd[i].dq = 0.0;
             lastCommand_.motor_cmd[i].tau = 0.0;
-            lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
+            lowCommandDesired_.motor_cmd[i].q = q;
             lowCommandDesired_.motor_cmd[i].dq = 0.0;
             lowCommandDesired_.motor_cmd[i].tau = 0.0;
             lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
@@ -356,7 +359,8 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
     {
         for (size_t i = 0; i < numJoint_; ++i)
         {
-            lowCommandDesired_.motor_cmd[i].q = default_cmd.motor_cmd[i].q;
+            // Gate 9 admits 0.1 rad past the range: a measured pose from /lowstate.
+            lowCommandDesired_.motor_cmd[i].q = std::clamp(default_cmd.motor_cmd[i].q, joints_[i].q_min, joints_[i].q_max);
             lowCommandDesired_.motor_cmd[i].kp = default_cmd.motor_cmd[i].kp;
             lowCommandDesired_.motor_cmd[i].kd = default_cmd.motor_cmd[i].kd;
         }
