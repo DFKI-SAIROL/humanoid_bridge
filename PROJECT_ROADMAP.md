@@ -53,6 +53,8 @@ Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
 - [ ] GEAR waits forever for Dex3 state on a G1 without hands: `with_hands` defaults to True (`configs.py:108`); neither `g1_stack/nodes/gear_controller.py` nor the commander workspace passes `--no-with-hands`, and robot-mode `calibrate_hands` blocks with no timeout. **Done when:** a hand-less G1 run reaches "GEAR -> /robot_cmd at 50 Hz".
 
 - [ ] Dex3 finger gains: GEAR's hand sender (`decoupled_wbc` `command_sender.py:130-133`, forwarded by `adapters/gear_hands.py`) sends kp 2/1, kd 0.5/0.2; SIMPLE trains and evaluates with kp 5/2.5, kd 1 (`G1Sonic.apply_action`). A bridge try of psi0 `g1-xmovepick` (g1-pick-smoke ep 0) failed the grasp with GEAR's gains and succeeded in-process. **Done when:** the gains the real Dex3 needs are measured on the robot and the sim or the sender matches them.
+- [ ] Stale controller state after a `/lowstate` gap: GEAR waits in `observe()` with no timeout and resumes with its old history; `amo_controller` stops sending after 0.1 s but resumes with its old `_hist`/`_last_action`; the psi0 loop node keeps the last `rt/lowstate` sample with no age check (`humanoid-locoman-vla`). The commander's Arm gate covers it until then.
+  **Done when:** each controller exits or resets its policy state after a gap, and a `fake_g1 /fake_g1/pause` test shows it.
 - [ ] Robot rehearsal on the real-robot branch, after both items above: the full G1 path (workspace `psi0` with a real-robot checkpoint → `psi0_gear_loop` → GEAR robot mode → G1_bridge) against `g1_sim` instead of the G1. Needs `g1_sim` to publish `rt/secondary_imu` and answer the motion switcher ("no mode"), the workspace's camera host and DDS interface from the commander's mode, and the multicast patch on `lo` for the loop node. **Done when:** a rehearsal from the page reaches GEAR's loop and moves `g1_sim` through the loop node.
 
 ### Gantry acceptance
@@ -67,6 +69,9 @@ Decided and fake-tested on `g1-web-interface` (`docs/psi0_gates.md`).
 
 - [ ] Measure on the gantry what Unitree's motion service does when it takes over `/lowcmd` while the bridge is latched `other_lowcmd` (damp frames keep going, `docs/estop.md`).
   **Done when:** the result is in `docs/estop.md`, and the `other_lowcmd` rule (keep damp vs go silent) is confirmed or changed.
+
+- [ ] Check on the G1 that `LowState.tick` restarts at boot: `/robot_link` tells a reboot from a link drop by it.
+  **Done when:** one reboot on the gantry shows `RESTARTED` and one pulled cable shows `BACK … no_restart`.
 
 ### Upstream fixes — one branch each
 

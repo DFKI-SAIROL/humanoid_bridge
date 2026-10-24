@@ -22,7 +22,8 @@ namespace sairol_bridge::estop
         Shutdown,                   // operator: SIGINT or SIGTERM while sending; damp, final
         Stop,                       // /stop_control, the only cause that does not latch
         Imu, StateLoss, StateInvalid, CmdTimeout,  // faults
-        OtherLowcmd                 // fault, damp fixed: another /lowcmd publisher while sending
+        OtherLowcmd,                // fault, damp fixed: another /lowcmd publisher while sending
+        RobotRestart                // fault, damp fixed: /lowstate back after a gap with a lower tick
     };
 
     // Same bits as WirelessKey_H1_G1, plus F1/F2.
@@ -137,6 +138,33 @@ namespace sairol_bridge::estop
         Cause cause_{Cause::None};
         bool publishing_{false};
         uint64_t generation_{0};
+    };
+
+    // /robot_link: /lowstate gaps and LowState.tick, armed or not. Not thread-safe.
+    // Only a gap over STATE_LOSS_S counts: a reboot takes far longer, and a stray
+    // sample must not latch a running robot.
+    class LinkWatch
+    {
+    public:
+        // A /lowstate arrived at steady time now_s. True if describe() changed.
+        bool onState(double now_s, uint32_t tick);
+        // Between states. True if describe() changed: LOST at STATE_LOSS_S, then once a second.
+        bool poll(double now_s);
+        // A successful /estop_reset or arming: BACK -> OK. Never clears LOST or RESTARTED.
+        bool clear();
+        bool restarted() const { return restarted_; }
+        // OK | LOST <s> | BACK <gap_s> no_restart | RESTARTED <gap_s>
+        std::string describe() const;
+
+    private:
+        bool seen_{false};
+        bool lost_{false};
+        bool back_{false};
+        bool restarted_{false};   // for this bridge's lifetime
+        double lastState_{0};
+        double lostShown_{0};
+        double gap_{0};
+        uint32_t tick_{0};
     };
 
 } // namespace sairol_bridge::estop

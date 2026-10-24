@@ -44,6 +44,24 @@ Closes roadmap `feat/g1-finish-control-release`.
 - SIGINT or SIGTERM while publishing: latches `damp shutdown` over any earlier cause, sends damp frames for 1 s (`SHUTDOWN_DAMP_S`), then exits silent. Final: no reset, re-arm or mode change. From `DISARMED` or a silent latch it exits silent at once. SIGKILL or a crash: silent at once (G0).
 - New topic `/bridge_state` (`std_msgs/String`, transient-local, on change), e.g. `LATCHED damp remote_damp`.
 
+## Robot link — `/robot_link`
+
+`std_msgs/String`, transient-local, on change. G1 only. Tracks `/lowstate` gaps and `LowState.tick`, armed or not.
+
+| Value | When | Cleared by |
+|---|---|---|
+| `OK` | a new bridge; after a clear | — |
+| `LOST <s>` | no `/lowstate` for 0.2 s; again once a second | `/lowstate` back |
+| `BACK <gap_s> no_restart` | back after a gap, tick moved on: a link drop | successful `/estop_reset` or arming |
+| `RESTARTED <gap_s>` | back after a gap, tick not higher: a reboot | a new bridge only |
+
+- `RESTARTED` while `ARMED`, `STOPPED` or latched: latches `damp robot_restart` (silent by then: the gap went past 1.2 s).
+- `RESTARTED` while `DISARMED`: nothing latches.
+- After `RESTARTED` every arming service, Ready/Zero and `/estop_reset` are refused: `robot restarted: restart G1_bridge to release /lowcmd`. `g1-bringup.sh` releases the motion service at start.
+- The bridge never releases `/lowcmd` itself (roadmap: motion-service takeover).
+- A tick drop without a 0.2 s gap is ignored: a stray sample must not latch a running robot.
+- Not checked on the G1: that its tick restarts at boot (roadmap).
+
 ## Stop frames
 
 Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: that q clamp divides by `kp`.
@@ -77,6 +95,7 @@ Built by a new `publishStopCommand_()`. It does not reuse `publishLowCommand_`: 
 | state NaN, length, `dq` over limit; a non-finite tracking frame | `state_invalid` | damp (config) | yes |
 | command timeout | `cmd_timeout` | hold (config) | yes |
 | another `/lowcmd` publisher while publishing | `other_lowcmd` | damp (fixed) | yes |
+| `/robot_link` `RESTARTED` while not `DISARMED` | `robot_restart` | damp (fixed) | yes; no reset |
 
 - GEAR sends `duration 0.02`, no `hold_position`: a GEAR stall over 0.22 s latches `cmd_timeout`.
 - `/estop_reset` is refused while its cause is still present: state stale, IMU over threshold, NaN, a combo still held, or another `/lowcmd` publisher.
@@ -117,8 +136,8 @@ Sources: Unitree G1 developer docs (remote control page) and third-party guides;
 ```yaml
 estop:
   damp_kd: 8.0
-  remote_combo_damp: ["L1", "R1"]
-  remote_combo_hold: ["R1", "R2"]
+  remote_combo_damp: ["R1", "R2"]
+  remote_combo_hold: ["L1", "R1"]
   require_remote: true   # arming refused without the remote
   mode:              # damp | hold; operator e-stops are fixed
     stop: hold
@@ -142,7 +161,8 @@ estop:
 
 | Level | What |
 |---|---|
-| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss; shutdown damps and is final; `other_lowcmd` latches damp over hold |
+| `tools/test.sh --cpp`: gtest `test_estop` | frames for both modes incl. parallel joints; latch refuses arming; reset refused while cause present; operator hold after damp; fault never turns damp into hold; both combos → damp; trigger from `DISARMED` stays silent; key parsing; remote header; silence after state loss; shutdown damps and is final; `other_lowcmd` latches damp over hold; `robot_restart` names itself over a silent `state_loss`; `LinkWatch` values and clears |
+| `tools/test.sh --link`: `drive_link.py` against `fake_g1.py` | `/fake_g1/pause` while `DISARMED` and `ARMED`: `LOST`, `BACK … no_restart`, cleared by arming and by reset; `/fake_g1/reboot` while `ARMED`: `RESTARTED`, `LATCHED damp robot_restart silent`, no frame, reset/arm/Ready refused also once `/lowcmd` is free; a fresh bridge starts `OK`, reboot while `DISARMED`: nothing latches, arming refused |
 | `tools/test.sh --estop`: `drive_estop.py` against `fake_g1.py` | no `/start_control` while another node holds `/lowcmd` at start; both combos, both services, `/stop_control`, timeout, IMU escalation, every refusal and reset, live on `/lowcmd` and `/bridge_state`; arming refused without the remote; `ros2 param set` on a joint gain refused, value kept; another `/lowcmd` publisher while armed latches `damp other_lowcmd` within 1.5 s, reset refused while it is there; re-arm after a command with dq and tau: every frame has dq 0 and tau 0 (`initControl_`); `state_loss` → silent after 1.2 s; a NaN q, a joint over its `dq_limit` (0.9× stays armed) and a NaN IMU each latch `damp state_invalid` from `ARMED`, reset refused while present; then `drive_shutdown.py`: SIGINT while armed → damp for 1 s, then silent |
 | `tools/test.sh --wire` | GEAR's stream ends in a `cmd_timeout` hold |
 | `tools/test.sh --gates`: `drive_no_estop_block.py` | a config without `estop:` still refuses arming without the remote |

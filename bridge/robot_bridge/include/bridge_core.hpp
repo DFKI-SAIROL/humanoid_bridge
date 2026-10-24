@@ -99,6 +99,18 @@ namespace sairol_bridge
         bool remoteAllowsArming_(std::string &why);
         // Robot-specific arming refusals. Default: none.
         virtual bool robotAllowsArming_(std::string &why) { (void)why; return true; }
+        // Every arming service and Ready/Zero while ARMED: remote, robot link, robot-specific.
+        bool armingGates_(std::string &why);
+
+        // /robot_link (docs/estop.md). A robot that feeds it calls startLinkWatch_ after its
+        // startup waits, then noteLink_ with each state's tick. Executor thread only.
+        void startLinkWatch_();
+        void noteLink_(uint32_t tick);
+        void pollLink_();
+        void publishLink_();
+        void clearLink_();   // after a successful /estop_reset or arming
+        // False once the robot restarted under this bridge: only a new bridge releases /lowcmd.
+        bool linkAllowsArming_(std::string &why);
         // A robot-specific fault still present, for /estop_reset. Default: none.
         virtual estop::Cause robotFault_() { return estop::Cause::None; }
         // Called by update_() with mutex_ held, while stopped. Default: silent.
@@ -118,6 +130,9 @@ namespace sairol_bridge
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr estopHoldService_;
         rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr estopResetService_;
         rclcpp::Publisher<std_msgs::msg::String>::SharedPtr bridgeStatePublisher_;
+        rclcpp::Publisher<std_msgs::msg::String>::SharedPtr robotLinkPublisher_;   // null: no link watch
+        rclcpp::TimerBase::SharedPtr linkTimer_;
+        estop::LinkWatch link_;   // executor thread only
 
         std::vector<Joint> joints_;
         std::vector<CmdParams> cmdParams_;

@@ -12,9 +12,10 @@
 #
 #   unit   pure Python: clients, adapters, goal order, observation, camera, tools/tests
 #   cpp    gtests test_estop, test_gates, test_crc: e-stop latch, stop frames, remote keys,
-#          target gates, the /lowcmd CRC against Unitree's SDK
+#          robot link, target gates, the /lowcmd CRC against Unitree's SDK
 #   wire   the real G1_bridge against a fake robot, body path
 #   estop  the real G1_bridge's e-stop against a fake robot
+#   link   /robot_link: a fake robot drops its link and reboots, armed and disarmed
 #   gates  a fresh G1_bridge's target gates (range, speed, torque window, arming seed)
 #          against a fake robot
 #   hands  the real G1_bridge against fake Dex3 hands, five runs: plain, the left hand's
@@ -22,7 +23,7 @@
 #          both hands (hands-ready), Ready with the left hand silent (hands-ready-one)
 #   config the real G1_bridge refuses broken copies of G1_config.yaml
 #   sim    opt-in (--sim), host only: the real G1_bridge against g1_sim (MuJoCo): arm,
-#          hold, /robot_cmd, remote damp
+#          hold, /robot_cmd, remote damp; sim-link: link drop, reboot, g1-bringup.sh --sim release
 #
 # No stage touches hardware. Nothing here opens a real NIC: the DDS settings
 # below pin discovery to loopback, overriding any inherited CYCLONEDDS_URI.
@@ -38,6 +39,7 @@ RUN_UNIT=0
 RUN_CPP=0
 RUN_WIRE=0
 RUN_ESTOP=0
+RUN_LINK=0
 RUN_GATES=0
 RUN_HANDS=0
 RUN_CONFIG=0
@@ -62,6 +64,7 @@ Options:
   --cpp                 gtests test_estop, test_gates and test_crc only; needs a built workspace
   --wire                body-path integration test only
   --estop               e-stop integration test only
+  --link                robot link (drop, reboot) integration test only
   --gates               target-gate integration test only
   --hands               hand-path integration test only
   --config              broken-config refusal test only
@@ -94,6 +97,7 @@ while [ $# -gt 0 ]; do
         --cpp)   RUN_CPP=1 ;;
         --wire)  RUN_WIRE=1 ;;
         --estop) RUN_ESTOP=1 ;;
+        --link)  RUN_LINK=1 ;;
         --gates) RUN_GATES=1 ;;
         --hands) RUN_HANDS=1 ;;
         --config) RUN_CONFIG=1 ;;
@@ -111,8 +115,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_HANDS$RUN_CONFIG$RUN_SIM" = "00000000" ]; then
-    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_GATES=1; RUN_HANDS=1; RUN_CONFIG=1
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_LINK$RUN_GATES$RUN_HANDS$RUN_CONFIG$RUN_SIM" = "000000000" ]; then
+    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_LINK=1; RUN_GATES=1; RUN_HANDS=1; RUN_CONFIG=1
 fi
 
 # 3.0 to 4.0 s after start_hand_control: earlier and the left hand never tracks,
@@ -145,6 +149,7 @@ run_in_docker() {
     [ "$RUN_CPP" = 1 ] && inner+=(--cpp)
     [ "$RUN_WIRE" = 1 ] && inner+=(--wire)
     [ "$RUN_ESTOP" = 1 ] && inner+=(--estop)
+    [ "$RUN_LINK" = 1 ] && inner+=(--link)
     [ "$RUN_GATES" = 1 ] && inner+=(--gates)
     [ "$RUN_HANDS" = 1 ] && inner+=(--hands)
     [ "$RUN_CONFIG" = 1 ] && inner+=(--config)
@@ -314,7 +319,7 @@ stage_cpp() {
 }
 
 BUILD_PROBLEM=""
-if [ "$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_GATES$RUN_HANDS$RUN_CONFIG" != 000000 ] && command -v ros2 >/dev/null \
+if [ "$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_LINK$RUN_GATES$RUN_HANDS$RUN_CONFIG" != 0000000 ] && command -v ros2 >/dev/null \
    && ros2 pkg prefix robot_bridge >/dev/null 2>&1; then
     BUILD_PROBLEM="$(stale_build)"
 fi
@@ -330,6 +335,9 @@ if [ "$RUN_WIRE" = 1 ]; then
 fi
 if [ "$RUN_ESTOP" = 1 ]; then
     stage_integration estop "$INTEGRATION/run_fake_estop_test.sh"
+fi
+if [ "$RUN_LINK" = 1 ]; then
+    stage_integration link "$INTEGRATION/run_fake_link_test.sh"
 fi
 if [ "$RUN_GATES" = 1 ]; then
     stage_integration gates "$INTEGRATION/run_fake_gates_test.sh"
@@ -349,6 +357,7 @@ if [ "$RUN_SIM" = 1 ]; then
         record sim SKIP "g1_sim not in the sourced workspace; tools/build.sh"
     else
         stage_integration sim "$REPO/robot_stacks/g1/g1_sim/tests/integration/run_sim_bridge_test.sh"
+        stage_integration sim-link "$REPO/robot_stacks/g1/g1_sim/tests/integration/run_sim_link_test.sh"
     fi
 fi
 

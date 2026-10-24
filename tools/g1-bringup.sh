@@ -15,6 +15,9 @@
 #
 # Refuses while a g1_sim node is visible on the robot NIC (simulated /lowstate).
 #
+# --sim: against g1_sim on loopback DDS (robot_stacks/g1/g1_sim/README.md); still
+# releases, from g1_sim's fake motion switcher.
+#
 # Safe to re-run: with one G1_bridge already up it only arms; with two or more
 # it refuses (each writes /lowcmd). Only bridges in this network namespace
 # count: a test's bridge in its own namespace cannot reach the robot.
@@ -28,6 +31,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 
 PARAMS="$REPO/bridge/robot_bridge/params/G1_config.yaml"
 IFACE="${BRIDGE_IFACE:-enp4s0}"
+IFACE_GIVEN=0
 WS="${BRIDGE_WS:-$HOME/bridge_ws_estop}"
 LAB_REPO="${LAB_REPO:-$HOME/github/humanoid-locoman-vla}"
 UNITREE_PYTHON="${UNITREE_PYTHON:-}"
@@ -37,6 +41,7 @@ ROBOT_IS_CLEAR=0
 DO_RELEASE=1
 DO_STOP=0
 FOREGROUND=0
+SIM=0
 DRY_RUN=0
 WAIT_SECONDS=20
 NUM_JOINT=29
@@ -59,6 +64,8 @@ Options:
   --foreground           release, then exec G1_bridge in this process (log on stdout);
                          refuses any --arm-* and a running G1_bridge. Stop: SIGINT
                          to the process group
+  --sim                  g1_sim instead of the robot: DDS on loopback only (--iface lo),
+                         no g1_sim refusal; still releases /lowcmd
   --wait <s>             seconds to wait for the bridge (default 20)
   --dry-run              print every command, run none
   -h, --help             this text
@@ -77,7 +84,7 @@ EOF
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --iface)   IFACE="${2:?--iface needs a NIC}"; shift ;;
+        --iface)   IFACE="${2:?--iface needs a NIC}"; IFACE_GIVEN=1; shift ;;
         --workspace) WS="${2:?--workspace needs a path}"; shift ;;
         --params)  PARAMS="${2:?--params needs a path}"; shift ;;
         --no-release) DO_RELEASE=0 ;;
@@ -86,6 +93,7 @@ while [ $# -gt 0 ]; do
         --robot-is-clear) ROBOT_IS_CLEAR=1 ;;
         --stop)    DO_STOP=1 ;;
         --foreground) FOREGROUND=1 ;;
+        --sim)     SIM=1 ;;
         --wait)    WAIT_SECONDS="${2:?--wait needs seconds}"; shift ;;
         --dry-run) DRY_RUN=1 ;;
         -h|--help) usage; exit 0 ;;
@@ -149,6 +157,13 @@ fi
 
 # --- argument checks -------------------------------------------------------
 # Before the environment checks: a safety refusal must not depend on ROS.
+if [ "$SIM" = 1 ]; then
+    if [ "$IFACE_GIVEN" = 1 ] && [ "$IFACE" != lo ]; then
+        echo "refusing --sim with --iface $IFACE: the sim runs on lo only." >&2
+        exit 2
+    fi
+    IFACE=lo
+fi
 if [ "$FOREGROUND" = 1 ] && [ -n "$ARM_MODE" ]; then
     echo "refusing --arm-* with --foreground: the bridge never returns to arm it." >&2
     echo "Arm from the page, or with: ros2 service call /start_control ..." >&2
@@ -189,21 +204,33 @@ fi
 set +u
 # shellcheck disable=SC1091
 source /opt/ros/humble/setup.bash
-export BRIDGE_IFACE="$IFACE"
-# shellcheck disable=SC1091
-source "$WS_CLONE/scripts/setup_unitree.sh" >/dev/null
+if [ "$SIM" = 1 ]; then
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    # shellcheck disable=SC1091
+    source "$WS/install/setup.bash"
+    # shellcheck disable=SC1091
+    source "$WS_CLONE/bridge/robot_bridge/tests/integration/loopback_dds.sh"
+else
+    export BRIDGE_IFACE="$IFACE"
+    # shellcheck disable=SC1091
+    source "$WS_CLONE/scripts/setup_unitree.sh" >/dev/null
+fi
 set -u
 say "workspace $WS, CycloneDDS on $IFACE"
 
 # --- a sim on the robot network? -------------------------------------------
 # Read-only, so also in --dry-run. A g1_sim here feeds G1_bridge simulated /lowstate.
-say "looking for a g1_sim node on $IFACE"
-if timeout 15 ros2 node list --no-daemon --spin-time 2 2>/dev/null | grep -qx /g1_sim; then
-    echo "refused: a g1_sim node is visible on $IFACE; G1_bridge would read simulated /lowstate." >&2
-    echo "Stop it. A sim runs with loopback DDS only (robot_stacks/g1/g1_sim/README.md)." >&2
-    exit 1
+if [ "$SIM" = 1 ]; then
+    say "--sim: g1_sim expected on lo, no check"
+else
+    say "looking for a g1_sim node on $IFACE"
+    if timeout 15 ros2 node list --no-daemon --spin-time 2 2>/dev/null | grep -qx /g1_sim; then
+        echo "refused: a g1_sim node is visible on $IFACE; G1_bridge would read simulated /lowstate." >&2
+        echo "Stop it. A sim runs with loopback DDS only (robot_stacks/g1/g1_sim/README.md)." >&2
+        exit 1
+    fi
+    echo "   none"
 fi
-echo "   none"
 
 # --- 0. already running? ---------------------------------------------------
 mapfile -t running < <(robot_bridges)
@@ -281,7 +308,7 @@ else
             exit 1
         fi
         echo "   up"
-        echo "   e-stop: L1+R1 damp, R1+R2 hold (latched); clear with: ros2 service call /estop_reset std_srvs/srv/Trigger"
+        echo "   e-stop: R1+R2 damp, L1+R1 hold (latched); clear with: ros2 service call /estop_reset std_srvs/srv/Trigger"
     fi
 fi
 

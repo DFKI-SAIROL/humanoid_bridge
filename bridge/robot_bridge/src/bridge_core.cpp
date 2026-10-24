@@ -64,6 +64,76 @@ namespace sairol_bridge
             "start_control", std::bind(&BridgeCore::startControlServiceCB_, this, _1, _2));
     }
 
+    void BridgeCore::startLinkWatch_()
+    {
+        robotLinkPublisher_ = nh->create_publisher<std_msgs::msg::String>(
+            "/robot_link", rclcpp::QoS(1).reliable().transient_local());
+        publishLink_();
+        linkTimer_ = nh->create_wall_timer(std::chrono::milliseconds(50), std::bind(&BridgeCore::pollLink_, this));
+    }
+
+    void BridgeCore::noteLink_(uint32_t tick)
+    {
+        if (!robotLinkPublisher_ || !link_.onState(steadyClock_.now().seconds(), tick))
+        {
+            return;
+        }
+        publishLink_();
+        if (!link_.restarted())
+        {
+            return;
+        }
+        // From DISARMED nothing latches: linkAllowsArming_ refuses instead.
+        bool sending = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            sending = controlStarted_ || latch_.state() != estop::SafetyLatch::State::Idle;
+        }
+        if (sending)
+        {
+            enterStop_(estop::Cause::RobotRestart);
+        }
+    }
+
+    void BridgeCore::pollLink_()
+    {
+        if (link_.poll(steadyClock_.now().seconds()))
+        {
+            publishLink_();
+        }
+    }
+
+    void BridgeCore::publishLink_()
+    {
+        std_msgs::msg::String message;
+        message.data = link_.describe();
+        robotLinkPublisher_->publish(message);
+        RCLCPP_WARN(nh->get_logger(), "Robot link: %s", message.data.c_str());
+    }
+
+    void BridgeCore::clearLink_()
+    {
+        if (robotLinkPublisher_ && link_.clear())
+        {
+            publishLink_();
+        }
+    }
+
+    bool BridgeCore::linkAllowsArming_(std::string &why)
+    {
+        if (!link_.restarted())
+        {
+            return true;
+        }
+        why = "robot restarted: restart G1_bridge to release /lowcmd";
+        return false;
+    }
+
+    bool BridgeCore::armingGates_(std::string &why)
+    {
+        return remoteAllowsArming_(why) && linkAllowsArming_(why) && robotAllowsArming_(why);
+    }
+
     void BridgeCore::start()
     {
         // Init Thread
@@ -636,6 +706,11 @@ namespace sairol_bridge
     bool BridgeCore::armControl_(bridge_interface::msg::RobotCmd default_cmd, std::string &why)
     {
         uint64_t generation = 0;
+        // Before the latch: after a restart /estop_reset is refused too, so "reset first" would mislead.
+        if (!linkAllowsArming_(why))
+        {
+            return false;
+        }
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (latch_.latched())
@@ -652,7 +727,7 @@ namespace sairol_bridge
             why = std::string("robot state fault: ") + estop::name(fault);
             return false;
         }
-        if (!remoteAllowsArming_(why) || !robotAllowsArming_(why))
+        if (!armingGates_(why))
         {
             return false;
         }
@@ -675,6 +750,7 @@ namespace sairol_bridge
         }
         syncLatchFlags_();
         publishBridgeState_(latch_.describe(controlStarted_));
+        clearLink_();
         return true;
     }
 
@@ -816,6 +892,15 @@ namespace sairol_bridge
         const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
+        std::string restarted;
+        if (!linkAllowsArming_(restarted))
+        {
+            response->success = false;
+            response->message = "reset refused: " + restarted;
+            RCLCPP_WARN(nh->get_logger(), "%s", response->message.c_str());
+            return;
+        }
+
         estop::Cause present = checkState_();
         if (present == estop::Cause::None)
         {
@@ -849,6 +934,7 @@ namespace sairol_bridge
         }
         response->message = state;
         RCLCPP_WARN(nh->get_logger(), "E-stop reset: %s", state.c_str());
+        clearLink_();
     }
 
     void BridgeCore::readyPositionControlServiceCB_(
@@ -874,8 +960,7 @@ namespace sairol_bridge
     {
         std::string why;
         // Moves every joint, so it counts as arming even while tracking.
-        const bool allowed = controlStarted_ ? remoteAllowsArming_(why) && robotAllowsArming_(why)
-                                             : armControl_(bridge_interface::msg::RobotCmd(), why);
+        const bool allowed = controlStarted_ ? armingGates_(why) : armControl_(bridge_interface::msg::RobotCmd(), why);
         if (!allowed)
         {
             RCLCPP_WARN(nh->get_logger(), "%s position refused: %s", name.c_str(), why.c_str());

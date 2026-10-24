@@ -47,6 +47,7 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     createArmingServices_();
     // Arming checks /lowcmd once; this catches a sender that starts later (motion service, a script).
     lowcmdWatchTimer_ = nh->create_wall_timer(1s, std::bind(&G1Bridge::watchLowcmd_, this));
+    startLinkWatch_();
 
     hands_[HAND_LEFT].name = "left";
     hands_[HAND_RIGHT].name = "right";
@@ -220,6 +221,8 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     imu_.accelerometer = msg->imu_state.accelerometer;
     imu_.quaternion = msg->imu_state.quaternion;
     lock.unlock();
+
+    noteLink_(msg->tick);
 
     // The remote rides on LowState at 500 Hz; /wirelesscontroller stays silent in debug mode.
     const uint16_t keys = estop::remoteKeys(msg->wireless_remote.data(), msg->wireless_remote.size());
@@ -832,6 +835,11 @@ void sairol_bridge::G1Bridge::publishHandCommand_()
 
 bool sairol_bridge::G1Bridge::handsAllowStart_(std::string &why)
 {
+    // Before the latch, as in armControl_: after a restart a reset is refused too.
+    if (!linkAllowsArming_(why))
+    {
+        return false;
+    }
     if (latched_)
     {
         why = "e-stop latched; call /estop_reset first";
@@ -844,7 +852,7 @@ bool sairol_bridge::G1Bridge::handsAllowStart_(std::string &why)
         why = std::string("robot state fault: ") + estop::name(fault);
         return false;
     }
-    return remoteAllowsArming_(why) && robotAllowsArming_(why);
+    return armingGates_(why);
 }
 
 void sairol_bridge::G1Bridge::startHands_(std::string &started, std::string &silent)

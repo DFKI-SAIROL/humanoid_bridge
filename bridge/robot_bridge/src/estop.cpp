@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <utility>
 
 namespace sairol_bridge::estop
@@ -76,6 +77,7 @@ namespace sairol_bridge::estop
         case Cause::StateInvalid: return "state_invalid";
         case Cause::CmdTimeout: return "cmd_timeout";
         case Cause::OtherLowcmd: return "other_lowcmd";
+        case Cause::RobotRestart: return "robot_restart";
         default: return "none";
         }
     }
@@ -239,8 +241,9 @@ namespace sairol_bridge::estop
         }
 
         // Shutdown always takes the cause, even over a damp latch: the final rule hangs on it.
-        if (cause != Cause::Shutdown && next_state == state_ && next_mode == mode_ &&
-            next_publishing == publishing_)
+        // robot_restart too, over a silent damp state_loss: /bridge_state names the restart.
+        const bool takes_cause = cause == Cause::Shutdown || (cause == Cause::RobotRestart && cause_ != cause);
+        if (!takes_cause && next_state == state_ && next_mode == mode_ && next_publishing == publishing_)
         {
             return result;
         }
@@ -310,6 +313,70 @@ namespace sairol_bridge::estop
         default:
             return tracking ? "ARMED" : "DISARMED";
         }
+    }
+
+    bool LinkWatch::onState(double now_s, uint32_t tick)
+    {
+        const double gap = now_s - lastState_;
+        const uint32_t last_tick = tick_;
+        const bool first = !seen_;
+        seen_ = true;
+        lastState_ = now_s;
+        tick_ = tick;
+        if (first || (!lost_ && gap <= STATE_LOSS_S))
+        {
+            return false;
+        }
+        lost_ = false;
+        back_ = true;
+        gap_ = gap;
+        // A running robot's tick moves on through a link drop; a booted one starts again near 0.
+        restarted_ = restarted_ || tick <= last_tick;
+        return true;
+    }
+
+    bool LinkWatch::poll(double now_s)
+    {
+        const double age = now_s - lastState_;
+        if (!seen_ || age <= STATE_LOSS_S || (lost_ && std::floor(age) <= std::floor(lostShown_)))
+        {
+            return false;
+        }
+        lost_ = true;
+        lostShown_ = age;
+        return true;
+    }
+
+    bool LinkWatch::clear()
+    {
+        if (lost_ || restarted_ || !back_)
+        {
+            return false;
+        }
+        back_ = false;
+        return true;
+    }
+
+    std::string LinkWatch::describe() const
+    {
+        char text[48];
+        if (lost_)
+        {
+            std::snprintf(text, sizeof(text), "LOST %.1f", lostShown_);
+        }
+        else if (restarted_)
+        {
+            std::snprintf(text, sizeof(text), "RESTARTED %.1f", gap_);
+        }
+        else if (back_)
+        {
+            std::snprintf(text, sizeof(text), "BACK %.1f no_restart", gap_);
+        }
+        else
+        {
+            return "OK";
+        }
+        return text;
     }
 
 } // namespace sairol_bridge::estop

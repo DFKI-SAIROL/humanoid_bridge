@@ -184,6 +184,7 @@ ros2 service call /estop_damp std_srvs/srv/Trigger {}        # G1: latched, kp 0
 ros2 service call /estop_hold std_srvs/srv/Trigger {}        # G1: latched, holds the pose
 ros2 service call /estop_reset std_srvs/srv/Trigger {}       # refused while the cause lasts
 ros2 topic echo /bridge_state                                # G1 only
+ros2 topic echo /robot_link                                  # G1 only: OK, LOST, BACK, RESTARTED (docs/estop.md)
 ```
 
 ### G1 Dex3 hands

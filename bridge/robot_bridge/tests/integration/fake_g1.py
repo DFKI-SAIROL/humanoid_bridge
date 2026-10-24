@@ -4,6 +4,8 @@ Test inputs: /fake_g1/keys (UInt16, remote key mask), /fake_g1/roll (Float32, ra
 /fake_g1/remote (Bool, remote header on/off), /fake_g1/pause (Bool, stop /lowstate).
 Bad robot data, joint 0 / roll: /fake_g1/nan_q (Bool), /fake_g1/dq (Float32, rad/s),
 /fake_g1/nan_imu (Bool). /fake_g1/freeze (Bool): stop tracking, q holds (a lagging robot).
+/fake_g1/pause is a link drop: LowState.tick moves on. /fake_g1/reboot (Float32, s): no /lowstate
+for s, then tick from 0 and a motion service holding /lowcmd (never sends); /fake_g1/release (Bool) drops it.
 """
 
 import argparse
@@ -37,6 +39,10 @@ class FakeG1(Node):
         self.create_subscription(Float32, "/fake_g1/dq", self._on_dq, 10)
         self.create_subscription(Bool, "/fake_g1/nan_imu", self._on_nan_imu, 10)
         self.create_subscription(Bool, "/fake_g1/freeze", self._on_freeze, 10)
+        self.create_subscription(Float32, "/fake_g1/reboot", self._on_reboot, 10)
+        self.create_subscription(Bool, "/fake_g1/release", self._on_release, 10)
+        self.boot_until = None  # monotonic time the reboot ends
+        self.motion_service = None
         self.frozen = False
         self.paused = False
         self.nan_q = False
@@ -54,9 +60,18 @@ class FakeG1(Node):
         self.q = [float(start_q)] * NUM_JOINT
         self.samples = []
         self.t0 = time.monotonic()
+        self.booted = self.t0  # LowState.tick counts from here
         self.create_timer(STATE_PERIOD, self._tick)
 
     def _tick(self):
+        if self.boot_until is not None:
+            if time.monotonic() < self.boot_until:
+                return
+            self.boot_until = None
+            self.booted = time.monotonic()
+            if self.motion_service is None:
+                self.motion_service = self.create_publisher(LowCmd, "/lowcmd", 10)
+            print("fake_g1: rebooted, motion service holds /lowcmd", flush=True)
         if self.paused:
             return
         for i in range(NUM_JOINT):
@@ -66,7 +81,7 @@ class FakeG1(Node):
             self.state.motor_state[0].q = math.nan
         self.state.motor_state[0].dq = self.dq0
         self.state.imu_state.rpy = [math.nan if self.nan_imu else self.roll, 0.0, 0.0]
-        self.state.tick = int((time.monotonic() - self.t0) * 1000)
+        self.state.tick = int((time.monotonic() - self.booted) * 1000)
         self.publisher.publish(self.state)
 
     def _on_keys(self, msg):
@@ -94,6 +109,15 @@ class FakeG1(Node):
 
     def _on_pause(self, msg):
         self.paused = bool(msg.data)
+
+    def _on_reboot(self, msg):
+        self.boot_until = time.monotonic() + float(msg.data)
+
+    def _on_release(self, msg):
+        if msg.data and self.motion_service is not None:
+            self.destroy_publisher(self.motion_service)
+            self.motion_service = None
+            print("fake_g1: motion service released /lowcmd", flush=True)
 
     def _on_cmd(self, msg):
         if not self.frozen:

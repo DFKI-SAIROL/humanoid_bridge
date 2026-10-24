@@ -51,6 +51,7 @@ E-stop, target gates, broken configs; each driver ends `all checks passed`:
 
 ```bash
 tools/test.sh --estop      # docs/estop.md
+tools/test.sh --link       # docs/estop.md, Robot link
 tools/test.sh --gates      # docs/psi0_gates.md
 tools/test.sh --config
 ```
@@ -77,10 +78,12 @@ fake_g1 records `/lowcmd` at all.
 
 | File | Role |
 |---|---|
-| `fake_g1.py` | publishes `/lowstate` at 500 Hz, records `/lowcmd`, tracks commands perfectly |
+| `fake_g1.py` | publishes `/lowstate` at 500 Hz, records `/lowcmd`, tracks commands perfectly; `/fake_g1/pause` drops the link (tick moves on), `/fake_g1/reboot <s>` restarts the tick and holds `/lowcmd` like a motion service, `/fake_g1/release` drops it |
 | `drive_gear_wbc.py` | `start_control`, then 100 commands at 50 Hz through the adapter |
 | `check_lowcmd.py` | asserts the recording, exit 1 on failure |
 | `drive_estop.py` | starts before the bridge (handshake: `driver: holding /lowcmd`) and holds `/lowcmd` until the bridge log shows it was seen and no `/start_control` exists; then drives every e-stop path and checks `/lowcmd` and `/bridge_state` live; `fake_g1.py` takes `/fake_g1/keys`, `/fake_g1/roll`, and bad joint-0 data `/fake_g1/nan_q`, `/fake_g1/dq`, `/fake_g1/nan_imu`; `drive_gates.py` uses `/fake_g1/freeze` (q stops tracking) |
+| `drive_link.py` | `armed`: `/fake_g1/pause` while disarmed and armed (`LOST`, `BACK … no_restart`, cleared by arming and reset), then `/fake_g1/reboot` while armed (`RESTARTED`, `robot_restart`, reset/arm/Ready refused, also after `/fake_g1/release`); `disarmed`: reboot on a fresh bridge, nothing latches, arming refused |
+| `run_fake_link_test.sh` | `drive_link.py armed`, SIGINT, then `drive_link.py disarmed` on a fresh bridge: a restart is final for a bridge |
 | `drive_shutdown.py` | runs last in the e-stop run: arms, SIGINTs the bridge's process group, checks damp frames for 1 s, then silence |
 | `run_fake_estop_test.sh` | orchestrates the e-stop run; then SIGINT to a second bridge in its `/lowcmd` wait: exit 0 within 5 s |
 | `run_fake_wire_test.sh` | orchestrates the three, cleans up |

@@ -491,3 +491,134 @@ TEST(Shutdown, WhileDisarmedStaysSilent)
     EXPECT_FALSE(latch.publishing());
     EXPECT_EQ(latch.describe(false), "LATCHED damp shutdown silent");
 }
+
+// --- robot restart -------------------------------------------------------------
+
+TEST(RobotRestart, NamesItselfOverASilentStateLoss)
+{
+    auto latch = latchedFromTracking(Cause::StateLoss);
+    ASSERT_TRUE(latch.silence());
+    EXPECT_TRUE(latch.trigger(Cause::RobotRestart, false).changed);
+    EXPECT_EQ(latch.describe(false), "LATCHED damp robot_restart silent");
+    EXPECT_FALSE(latch.trigger(Cause::RobotRestart, false).changed);
+}
+
+TEST(RobotRestart, TurnsHoldIntoDamp)
+{
+    auto latch = latchedFromTracking(Cause::CmdTimeout);
+    EXPECT_TRUE(latch.trigger(Cause::RobotRestart, false).changed);
+    EXPECT_EQ(latch.describe(false), "LATCHED damp robot_restart");
+}
+
+// --- robot link ------------------------------------------------------------------
+
+namespace
+{
+    // Steady /lowstate at 500 Hz from t0 to before t1, tick in ms from tick0. The last one at t1 - 0.002.
+    void stream(LinkWatch &link, double t0, double t1, uint32_t tick0)
+    {
+        for (int i = 0; t0 + 0.002 * i < t1 - 1e-9; ++i)
+        {
+            link.onState(t0 + 0.002 * i, tick0 + 2 * i);
+        }
+    }
+} // namespace
+
+TEST(Link, StartsOkAndStaysOkOnAStream)
+{
+    LinkWatch link;
+    EXPECT_EQ(link.describe(), "OK");
+    EXPECT_FALSE(link.poll(0.0));   // nothing seen yet: no LOST before the first state
+    stream(link, 1.0, 2.0, 5000);
+    EXPECT_FALSE(link.poll(2.1));
+    EXPECT_EQ(link.describe(), "OK");
+}
+
+TEST(Link, ShortGapIsNoEvent)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 0);
+    EXPECT_FALSE(link.onState(1.15, 1150));
+    EXPECT_EQ(link.describe(), "OK");
+}
+
+TEST(Link, LostFromStateLossThenOnceASecond)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 0);
+    const double last = 0.998;
+    EXPECT_FALSE(link.poll(last + 0.15));
+    EXPECT_TRUE(link.poll(last + 0.22));
+    EXPECT_EQ(link.describe(), "LOST 0.2");
+    EXPECT_FALSE(link.poll(last + 0.6));
+    EXPECT_TRUE(link.poll(last + 1.3));
+    EXPECT_EQ(link.describe(), "LOST 1.3");
+    EXPECT_FALSE(link.poll(last + 1.5));
+}
+
+TEST(Link, TickMovedOnIsBackNoRestart)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 7000);
+    link.poll(1.5);
+    EXPECT_TRUE(link.onState(3.0, 10000));
+    EXPECT_EQ(link.describe(), "BACK 2.0 no_restart");
+    EXPECT_FALSE(link.restarted());
+    EXPECT_FALSE(link.poll(3.1));
+    EXPECT_TRUE(link.clear());
+    EXPECT_EQ(link.describe(), "OK");
+    EXPECT_FALSE(link.clear());
+}
+
+TEST(Link, GapThePollMissedStillCounts)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 0);
+    EXPECT_TRUE(link.onState(1.3, 1300));
+    EXPECT_EQ(link.describe(), "BACK 0.3 no_restart");
+}
+
+TEST(Link, LowerTickIsRestartedForGood)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 90000);
+    link.poll(1.5);
+    EXPECT_TRUE(link.onState(31.0, 12));
+    EXPECT_TRUE(link.restarted());
+    EXPECT_EQ(link.describe(), "RESTARTED 30.0");
+    EXPECT_FALSE(link.clear());
+    EXPECT_EQ(link.describe(), "RESTARTED 30.0");
+
+    // A later drop shows LOST, and once back it is still a restart.
+    stream(link, 31.002, 32.0, 14);
+    EXPECT_TRUE(link.poll(32.5));
+    EXPECT_EQ(link.describe(), "LOST 0.5");
+    EXPECT_TRUE(link.onState(33.0, 2000));
+    EXPECT_EQ(link.describe(), "RESTARTED 1.0");
+}
+
+TEST(Link, SameTickAfterAGapIsARestart)
+{
+    LinkWatch link;
+    link.onState(0.0, 500);
+    EXPECT_TRUE(link.onState(1.0, 500));
+    EXPECT_TRUE(link.restarted());
+}
+
+TEST(Link, LowerTickWithoutAGapIsIgnored)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 5000);
+    EXPECT_FALSE(link.onState(1.0, 10));
+    EXPECT_FALSE(link.restarted());
+    EXPECT_EQ(link.describe(), "OK");
+}
+
+TEST(Link, LostIsNotCleared)
+{
+    LinkWatch link;
+    stream(link, 0.0, 1.0, 0);
+    link.poll(1.5);
+    EXPECT_FALSE(link.clear());
+    EXPECT_EQ(link.describe(), "LOST 0.5");
+}

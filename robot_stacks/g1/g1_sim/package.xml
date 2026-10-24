@@ -12,6 +12,7 @@
   <exec_depend>rcl_interfaces</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>unitree_hg</exec_depend>
+  <exec_depend>unitree_api</exec_depend>
   <exec_depend>g1_camera</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
 

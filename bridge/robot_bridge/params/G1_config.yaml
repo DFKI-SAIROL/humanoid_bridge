@@ -1,5 +1,5 @@
 # remote control, read from /lowstate.wireless_remote (docs/estop.md):
-# e-stop damp: L1 + R1    e-stop hold: R1 + R2    (set under estop:)
+# e-stop damp: R1 + R2    e-stop hold: L1 + R1    (set under estop:)
 # arming needs the remote switched on (estop.require_remote)
 # the bridge reads no other key: start, ready, zero position and e-stop reset are services
 #   /start_control, /ready_position_control, /zero_position_control, /estop_reset
