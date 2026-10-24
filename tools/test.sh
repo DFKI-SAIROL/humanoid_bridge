@@ -17,8 +17,9 @@
 #   estop  the real G1_bridge's e-stop against a fake robot
 #   gates  a fresh G1_bridge's target gates (range, speed, torque window, arming seed)
 #          against a fake robot
-#   hands  the real G1_bridge against fake Dex3 hands, three runs: plain, the left hand's
-#          state stops (hands-stale), the left hand overheats (hands-hot)
+#   hands  the real G1_bridge against fake Dex3 hands, five runs: plain, the left hand's
+#          state stops (hands-stale), the left hand overheats (hands-hot), Ready opens
+#          both hands (hands-ready), Ready with the left hand silent (hands-ready-one)
 #   config the real G1_bridge refuses broken copies of G1_config.yaml
 #   sim    opt-in (--sim), host only: the real G1_bridge against g1_sim (MuJoCo): arm,
 #          hold, /robot_cmd, remote damp
@@ -337,6 +338,8 @@ if [ "$RUN_HANDS" = 1 ]; then
     stage_integration hands "$INTEGRATION/run_fake_hand_test.sh"
     stage_integration hands-stale "$INTEGRATION/run_fake_hand_test.sh" --stale-after "$STALE_AFTER"
     stage_integration hands-hot "$INTEGRATION/run_fake_hand_test.sh" --hot-after "$HOT_AFTER"
+    stage_integration hands-ready "$INTEGRATION/run_fake_hand_ready_test.sh"
+    stage_integration hands-ready-one "$INTEGRATION/run_fake_hand_ready_test.sh" --silent left
 fi
 if [ "$RUN_CONFIG" = 1 ]; then
     stage_integration config "$INTEGRATION/run_config_test.sh"

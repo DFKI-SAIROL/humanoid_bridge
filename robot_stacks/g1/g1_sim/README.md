@@ -49,6 +49,7 @@ ros2 topic pub -1 /g1_sim/gantry std_msgs/msg/Bool "{data: false}"   # drop it
 ```bash
 pytest robot_stacks/g1/g1_sim/tests/     # no ROS; skips without mujoco or g1.xml
 tools/test.sh --sim                      # bridge arms the sim, holds, /robot_cmd, camera, remote damp
+G1_MJCF=~/.local/share/g1_web_commander/g1_description/g1_29dof_with_hand.xml tools/test.sh --sim   # plus: Ready opens both Dex3
 robot_stacks/g1/g1_sim/tests/integration/run_sim_amo_test.sh   # AMO stands the sim 30 s, gantry off; own netns, psi0 venv + mujoco
 ```
 

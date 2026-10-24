@@ -211,7 +211,7 @@ class RobotCmdClient:
         return self._call(self.stop_control_client, Trigger.Request(), timeout_sec)
 
     def ready_position_control(self, timeout_sec=5.0):
-        """Ramp every joint to the config's ready_q; arms first if needed. Blocks on the bridge."""
+        """Ramp every joint to the config's ready_q, G1 Dex3 hands with state to hand_ready_q; arms first if needed."""
         return self._call(self.ready_position_control_client, Trigger.Request(), timeout_sec)
 
     def estop_damp(self, timeout_sec=5.0):

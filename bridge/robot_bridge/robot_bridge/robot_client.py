@@ -1255,7 +1255,7 @@ class RobotClient:
 
     def goto_default_position(self):
         """
-        Send robot to default position by calling the ready_position_control service.
+        Send robot to default position by calling the ready_position_control service; on a G1, Dex3 hands open too.
         """
         if self.robot_type == "X2" and not self.ready_position_client.service_is_ready():
             raise RuntimeError("ready_position_client service is unavailable.")

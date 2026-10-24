@@ -14,7 +14,7 @@ import yaml
 from rcl_interfaces.srv import GetParameters
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String, UInt16
-from unitree_hg.msg import LowState
+from unitree_hg.msg import HandState, LowState
 
 from g1_camera import wire
 from g1_camera.client import CameraClient
@@ -26,6 +26,8 @@ KEY_R1, KEY_L1, KEY_R2 = 1 << 0, 1 << 1, 1 << 4
 ELBOWS = (18, 25)
 TOL = 0.05  # rad
 RAMP_SECONDS = 3.0  # `duration` 2.0 plus margin
+HAND_SIDES = ("left", "right")
+HAND_TOL = 0.1  # rad; finger PD at kp 1-2 against the MJCF
 
 
 def load_params(path):
@@ -38,6 +40,7 @@ def load_params(path):
         "q_min": [float(params[n]["q_min"]) for n in names],
         "q_max": [float(params[n]["q_max"]) for n in names],
         "ready_q": [float(v) for v in params["ready_q"]],
+        "hand_ready_q": [float(v) for v in params["hand_ready_q"]],
     }
 
 
@@ -55,6 +58,11 @@ class Driver:
         )
         node.create_subscription(String, "/bridge_state", self._on_state, latched)
         node.create_subscription(LowState, "/lowstate", self._on_lowstate, 10)
+        self.hands = {}  # side -> latest HandState; empty without a Dex3 model
+        for side in HAND_SIDES:
+            node.create_subscription(
+                HandState, f"/dex3/{side}/state", lambda msg, s=side: self.hands.__setitem__(s, msg), 10
+            )
         self.state = None
         self.low = None
         self.failures = []
@@ -96,6 +104,19 @@ class Driver:
             self.client.send_cmd(q_target_pos=target)
             self.spin(0.02)
 
+    def check_hands_open(self, message):
+        """Ready opened the Dex3 hands, or named none on a model without them."""
+        if not self.hands:
+            want = "hands: none (no state)"
+            self.check("Ready without Dex3 names no hand", message.endswith(want), message)
+            return
+        self.check("Ready names both hands", message.endswith("hands: left, right"), message)
+        want = self.params["hand_ready_q"]
+        for side in HAND_SIDES:
+            q = [m.q for m in self.hands[side].motor_state[: len(want)]]
+            err = max(abs(a - b) for a, b in zip(q, want, strict=True))
+            self.check(f"{side} hand open at hand_ready_q", err < HAND_TOL, f"max error {err:.3f} rad")
+
     def check_mjcf(self):
         client = self.node.create_client(GetParameters, "/g1_sim/get_parameters")
         client.wait_for_service(timeout_sec=5.0)
@@ -132,6 +153,7 @@ class Driver:
         worst = max(range(NUM_MOTORS), key=lambda i: abs(q[i] - ready[i]))
         err = abs(q[worst] - ready[worst])
         self.check("holds ready_q", err < TOL, f"max error {err:.3f} rad at motor {worst}")
+        self.check_hands_open(reply.message)
 
         target = list(ready)
         for i in ELBOWS:

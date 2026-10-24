@@ -102,6 +102,12 @@ private:
     bool checkHandState_(int side);
     void publishHandCommand_();
     void publishOneHand_(int side, bool limp);
+    // The arming gates of start_hand_control: latch, body state, remote, other /lowcmd senders.
+    bool handsAllowStart_(std::string &why);
+    // Every hand with fresh state ramps to handReadyQ_ over duration_ and holds; names go to started/silent.
+    void startHands_(std::string &started, std::string &silent);
+    // Ready also opens the hands: the hands' part of the reply, e.g. "; hands: left, right".
+    std::string afterReadyPose_() override;
     void startHandControlServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                     std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void stopHandControlServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,

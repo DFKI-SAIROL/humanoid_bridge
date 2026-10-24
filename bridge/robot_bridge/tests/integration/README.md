@@ -58,7 +58,7 @@ tools/test.sh --config
 ## 3. The G1 hand path
 
 ```bash
-tools/test.sh --hands                                   # hands, hands-stale, hands-hot
+tools/test.sh --hands                                   # hands, hands-stale, hands-hot, hands-ready, hands-ready-one
 tools/test.sh --hands --stale-after 3.9 --hot-after 3.2
 ```
 
@@ -88,10 +88,12 @@ fake_g1 records `/lowcmd` at all.
 | `run_fake_gates_test.sh` | orchestrates the gate run, then `drive_no_estop_block.py` on a second bridge |
 | `loopback_dds.sh` | sourced by every `run_*.sh`: discovery on loopback only |
 | `harness.sh` | sourced by every `run_fake_*_test.sh`: paths, bridge start, cleanup, failure output |
-| `fake_dex3.py` | publishes `/dex3/*/state` at 100 Hz, records `/dex3/*/cmd`; `--stale-after`, `--hot-after`, both timed from the first left command |
+| `fake_dex3.py` | publishes `/dex3/*/state` at 100 Hz, records `/dex3/*/cmd`; `--stale-after`, `--hot-after`, both timed from the first left command; `--silent <side>` never publishes that hand |
 | `drive_hand_cmd.py` | `start_hand_control` refused with another `/lowcmd` publisher and on a tilt, then accepted, then both hands through the hand adapter, then an over-limit and a NaN command, then (`--check-estop`) `/estop_damp` mid-stream with both hands live, then a `/lowcmd` probe; `--phases` writes the NaN phase's times |
 | `check_hand_cmd.py` | asserts the hand recording; pure offline, needs no ROS |
 | `run_fake_hand_test.sh` | orchestrates the hand run |
+| `drive_hand_ready.py` | `/ready_position_control` twice: hands unarmed, then held closed by a client; each live hand opens to `hand_ready_q` and holds at config kp, never slack; `--silent <side>`: that hand gets no frame |
+| `run_fake_hand_ready_test.sh` | orchestrates the Ready run; `--silent left` runs `fake_dex3.py --silent left` |
 | `run_config_test.sh`, `drive_config.py` | `G1_bridge` on broken copies of `G1_config.yaml` (`ready_q` short or out of range, `idx` out of order, inverted limits): each must fail its parameter load. No fake robot |
 | `drive_no_estop_block.py` | after `drive_gates.py`, on a second bridge whose config lacks `estop:`: arming refused without the remote, accepted with it |
 

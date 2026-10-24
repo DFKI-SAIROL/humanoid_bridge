@@ -12,6 +12,7 @@ topic, at their own rate.
 | out | `/dex3/left/cmd`, `/dex3/right/cmd` — `unitree_hg/HandCmd` |
 | state in | `/dex3/left/state`, `/dex3/right/state` — `unitree_hg/HandState` |
 | enable | `/start_hand_control`, `/stop_hand_control` — `Trigger`, both hands |
+| ready | `/ready_position_control` also starts each hand with state, to `hand_ready_q` |
 | rate | `hand_control_dt`, 0.01 s, its own wall timer |
 
 `unitree_hg` already ships `HandCmd.msg` and `HandState.msg`, so the C++ bridge
@@ -105,6 +106,12 @@ client.send_hand_cmd("left", q, kp=..., kd=...)   # 7 long, DDS order
 client.stop_hand_control()
 ```
 
+`client.ready_position_control()` opens the hands too: after the body is granted,
+each hand with fresh state ramps to `hand_ready_q` over `duration` and holds, even
+under a client's `/hand_cmd`. A live hand ramps from its last frame, an unarmed one
+from its measured q at zero gain. The reply ends `; hands: left, right`, or
+`; hands: none (<why>)`; a refused body moves no hand.
+
 On both `RobotCmdClient` and `RobotClient`. There are no baked-in hand gains —
 pass them, or set them once with `set_default_hand_cmd()`. `start_hand_control`
 answers `success: false` when no hand is publishing state, and names any hand it
@@ -117,10 +124,12 @@ GEAR's own gains, because it is a drop-in and its caller passes none.
 
 ## Verify
 
-Hands are not mounted, so all of this is verified against a fake only.
+Verified against the fake and `g1_sim` only. Dex3 is mounted on the lab G1
+(2026-10-20); no hand command has gone through the bridge on hardware yet.
 
 ```bash
-tools/test.sh --hands               # plain, hands-stale, hands-hot runs
+tools/test.sh --hands               # plain, hands-stale, hands-hot, hands-ready, hands-ready-one
+G1_MJCF=<assets>/g1_description/g1_29dof_with_hand.xml tools/test.sh --sim   # Ready opens the sim's Dex3
 tools/test.sh --hands --stale-after 3.9 --hot-after 3.2
 ```
 
@@ -142,6 +151,9 @@ getting limp frames.
 
 ## What breaks it
 
+- **The real left hand drops state for up to 1 s** (G1 gantry, 2026-10-23). The
+  0.2 s guard releases it limp; Ready skips it if the gap is at the call. Press
+  Ready again; cause open (roadmap).
 - **`checkExternalPublisher_` will not see `dex3_probe --command`.** It queries
   the ROS graph; `unitree_sdk2py` publishers are not ROS 2 nodes. The
   two-publisher guard is partial on the hand topics, and warns rather than

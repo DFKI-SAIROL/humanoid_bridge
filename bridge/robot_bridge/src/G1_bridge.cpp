@@ -830,42 +830,25 @@ void sairol_bridge::G1Bridge::publishHandCommand_()
     }
 }
 
-void sairol_bridge::G1Bridge::startHandControlServiceCB_(
-    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
-    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+bool sairol_bridge::G1Bridge::handsAllowStart_(std::string &why)
 {
-    (void)request;
-
-    if (!hands_[HAND_LEFT].cmd_pub)
-    {
-        response->success = false;
-        response->message = "hand path is not configured; the config has no hand_* parameters";
-        return;
-    }
-
     if (latched_)
     {
-        response->success = false;
-        response->message = "e-stop latched; call /estop_reset first";
-        RCLCPP_WARN(nh->get_logger(), "Hand start refused: %s", response->message.c_str());
-        return;
+        why = "e-stop latched; call /estop_reset first";
+        return false;
     }
-    std::string why;
     // The body state rule of body arming: a tilted robot or a stale /lowstate starts no hand.
     const estop::Cause fault = checkState_();
     if (fault != estop::Cause::None)
     {
         why = std::string("robot state fault: ") + estop::name(fault);
+        return false;
     }
-    if (!why.empty() || !remoteAllowsArming_(why) || !robotAllowsArming_(why))
-    {
-        response->success = false;
-        response->message = why;
-        RCLCPP_WARN(nh->get_logger(), "Hand start refused: %s", why.c_str());
-        return;
-    }
+    return remoteAllowsArming_(why) && robotAllowsArming_(why);
+}
 
-    std::string started, silent;
+void sairol_bridge::G1Bridge::startHands_(std::string &started, std::string &silent)
+{
     for (int side = 0; side < NUM_HANDS; ++side)
     {
         auto &hand = hands_[side];
@@ -879,19 +862,25 @@ void sairol_bridge::G1Bridge::startHandControlServiceCB_(
             continue;
         }
 
+        // A live hand ramps from its last frame, gains and all: a restart must not drop it slack.
+        const bool from_last = handStarted_ && hand.live;
+
         for (int i = 0; i < numHandJoint_; ++i)
         {
             auto &last = hand.last.motor_cmd[i];
             auto &target = hand.desired.motor_cmd[i];
             auto &params = hand.params[i];
 
-            // Start from where the hand actually is, at zero gain, so the first
-            // ramp cannot jerk a finger.
-            last.q = hand.state.motor_state[i].q;
-            last.dq = 0.0;
-            last.tau = 0.0;
-            last.kp = 0.0;
-            last.kd = 0.0;
+            // Otherwise start from where the hand actually is, at zero gain, so
+            // the first ramp cannot jerk a finger.
+            if (!from_last)
+            {
+                last.q = hand.state.motor_state[i].q;
+                last.dq = 0.0;
+                last.tau = 0.0;
+                last.kp = 0.0;
+                last.kd = 0.0;
+            }
 
             target.q = handReadyQ_[i];
             target.dq = 0.0;
@@ -901,14 +890,14 @@ void sairol_bridge::G1Bridge::startHandControlServiceCB_(
 
             params.q_0 = last.q;
             params.q_1 = target.q - last.q;
-            params.dq_0 = 0.0;
-            params.dq_1 = 0.0;
+            params.dq_0 = last.dq;
+            params.dq_1 = -last.dq;
             params.tau_0 = 0.0;
             params.tau_1 = 0.0;
-            params.kp_0 = 0.0;
-            params.kp_1 = target.kp;
-            params.kd_0 = 0.0;
-            params.kd_1 = target.kd;
+            params.kp_0 = last.kp;
+            params.kp_1 = target.kp - last.kp;
+            params.kd_0 = last.kd;
+            params.kd_1 = target.kd - last.kd;
         }
 
         hand.t_start = steadyClock_.now().seconds();
@@ -918,20 +907,72 @@ void sairol_bridge::G1Bridge::startHandControlServiceCB_(
         started += (started.empty() ? "" : ", ") + hand.name;
     }
 
+    handStarted_ = !started.empty();
+}
+
+void sairol_bridge::G1Bridge::startHandControlServiceCB_(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> response)
+{
+    (void)request;
+
+    if (!hands_[HAND_LEFT].cmd_pub)
+    {
+        response->success = false;
+        response->message = "hand path is not configured; the config has no hand_* parameters";
+        return;
+    }
+
+    std::string why;
+    if (!handsAllowStart_(why))
+    {
+        response->success = false;
+        response->message = why;
+        RCLCPP_WARN(nh->get_logger(), "Hand start refused: %s", why.c_str());
+        return;
+    }
+
+    std::string started, silent;
+    startHands_(started, silent);
+
     if (started.empty())
     {
-        handStarted_ = false;
         response->success = false;
         response->message = "no Dex3 hand is publishing state; nothing started";
         RCLCPP_ERROR(nh->get_logger(), "%s", response->message.c_str());
         return;
     }
 
-    handStarted_ = true;
     response->success = true;
     response->message = "hand control started: " + started +
                         (silent.empty() ? "" : "; silent, not started: " + silent);
     RCLCPP_INFO(nh->get_logger(), "%s", response->message.c_str());
+}
+
+std::string sairol_bridge::G1Bridge::afterReadyPose_()
+{
+    if (!hands_[HAND_LEFT].cmd_pub)
+    {
+        return "";   // no hand_* config: body only
+    }
+
+    std::string why, started, silent;
+    std::string hands;
+    if (!handsAllowStart_(why))
+    {
+        hands = "none (" + why + ")";
+    }
+    else
+    {
+        startHands_(started, silent);
+        hands = started.empty() ? "none (no state)" : started;
+        if (!started.empty() && !silent.empty())
+        {
+            hands += "; silent, not started: " + silent;
+        }
+    }
+    RCLCPP_INFO(nh->get_logger(), "Ready: hands to hand_ready_q: %s", hands.c_str());
+    return "; hands: " + hands;
 }
 
 void sairol_bridge::G1Bridge::stopHandControlServiceCB_(

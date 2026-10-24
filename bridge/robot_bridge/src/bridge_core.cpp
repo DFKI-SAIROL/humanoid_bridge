@@ -856,6 +856,10 @@ namespace sairol_bridge
         std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
         movePose_("Ready", ready_q_, response);
+        if (response->success)
+        {
+            response->message += afterReadyPose_();
+        }
     }
 
     void BridgeCore::zeroPositionControlServiceCB_(

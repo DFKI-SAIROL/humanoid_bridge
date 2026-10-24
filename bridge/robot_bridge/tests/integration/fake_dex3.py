@@ -7,6 +7,7 @@ Two switches exist so the guards can be exercised:
   --stale-after S   stop publishing left-hand state S seconds after the first
                     left-hand command arrives
   --hot-after S     report the left hand over temperature, same clock
+  --silent SIDE     never publish that hand's state: a hand that is not attached
 
 Both clocks start at the first `/dex3/left/cmd`, which is `start_hand_control`,
 not at process start. The runner sleeps about 6 s before the driver arms the
@@ -31,11 +32,12 @@ HOT = 99  # over hand_temperature_limit: 80.0 in G1_config.yaml
 
 
 class FakeDex3(Node):
-    def __init__(self, out_path, stale_after=None, hot_after=None):
+    def __init__(self, out_path, stale_after=None, hot_after=None, silent=None):
         super().__init__("fake_dex3")
         self.out_path = out_path
         self.stale_after = stale_after
         self.hot_after = hot_after
+        self.silent = silent
 
         self.publishers_by_side = {}
         self.q = {}
@@ -84,6 +86,8 @@ class FakeDex3(Node):
         armed = since_cmd is not None
 
         for side in SIDES:
+            if side == self.silent:
+                continue
             if (side == "left" and self.stale_after is not None
                     and armed and since_cmd > self.stale_after):
                 continue  # go silent: exercises the per-side freshness guard
@@ -115,10 +119,12 @@ def main():
     parser.add_argument("out", help="where to write the recorded /dex3/*/cmd samples")
     parser.add_argument("--stale-after", type=float, default=None)
     parser.add_argument("--hot-after", type=float, default=None)
+    parser.add_argument("--silent", choices=SIDES, default=None)
     args = parser.parse_args()
 
     rclpy.init()
-    node = FakeDex3(args.out, stale_after=args.stale_after, hot_after=args.hot_after)
+    node = FakeDex3(args.out, stale_after=args.stale_after, hot_after=args.hot_after,
+                    silent=args.silent)
     signal.signal(signal.SIGTERM, lambda *_: (node.dump(), sys.exit(0)))
     try:
         rclpy.spin(node)

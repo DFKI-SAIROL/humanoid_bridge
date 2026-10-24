@@ -3,7 +3,7 @@
 > One per repo. Planned work only, one item per task. Finished items are
 > deleted; git history is the log.
 
-_Last updated: 2026-10-22 · turing_
+_Last updated: 2026-10-24 · turing_
 
 ## Items
 
@@ -18,13 +18,20 @@ Built, compiled and verified against the fakes (`tools/test.sh`, all stages
 pass on both CycloneDDS and Fast DDS). Design in `docs/hands_path.md`. What is
 left needs hardware:
 
-- [ ] Confirm the Dex3 read order against hardware once the hands are mounted:
+- [ ] Confirm the Dex3 read order on the lab G1 (Dex3 mounted 2026-10-20):
   bend one left-hand finger and watch which side and which motor index answers.
   `dex3_probe --iface <if>` read mode is what answers it. Also bend the right
   index finger: Unitree's enum (psi0 teleop) puts right index before middle on
   motors 3–6, our config and `DEX3_ORDER` put middle first.
   **Done when:** `g1_stack/robot.py`'s UNCONFIRMED note on hand order is gone
   or corrected, and `hand_from_pose` is checked against a real hand.
+- [ ] Gantry run of Ready with the hands: press Ready in the commander, both hands open
+  and hold; read the finger motor temperatures after 5 min at the open hard stop.
+  **Done when:** both hands open on the G1, and `hand_ready_q` stays at zeros or
+  moves off the hard stop by a measured margin.
+- [ ] Left-hand state gaps: `/dex3/left/state` drops out for up to 1 s on the G1
+  (commander, 2026-10-23); the bridge releases the hand after 0.2 s.
+  **Done when:** the cause is known and the left hand state has no gap over 0.2 s.
 - [ ] Decide whether the bridge should republish hand state as a
   `bridge_interface` message, so `g1_stack` can drop its raw-DDS hand reader.
   Blocked on whether the Jetson ever needs hand state.
