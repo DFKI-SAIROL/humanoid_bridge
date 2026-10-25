@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 namespace sairol_bridge::estop
@@ -119,6 +120,38 @@ namespace sairol_bridge::estop
     bool remoteHeader(const uint8_t *raw, size_t size)
     {
         return raw != nullptr && size >= 2 && raw[0] == 0x55 && raw[1] == 0x51;
+    }
+
+    std::vector<std::string> keyNames(uint16_t keys)
+    {
+        std::vector<std::string> names;
+        for (int bit = 0; bit < 16; ++bit)
+        {
+            const uint16_t key = static_cast<uint16_t>(1u << bit);
+            if (!(keys & key))
+            {
+                continue;
+            }
+            const auto found = std::find_if(std::begin(KEY_NAMES), std::end(KEY_NAMES),
+                                            [&](const auto &entry) { return entry.second == key; });
+            names.emplace_back(found->first);
+        }
+        return names;
+    }
+
+    Sticks remoteSticks(const uint8_t *raw, size_t size)
+    {
+        Sticks sticks;
+        if (raw == nullptr || size < 24)
+        {
+            return sticks;
+        }
+        // Little-endian on the robot and on every host this builds for.
+        std::memcpy(&sticks.lx, raw + 4, 4);
+        std::memcpy(&sticks.rx, raw + 8, 4);
+        std::memcpy(&sticks.ry, raw + 12, 4);
+        std::memcpy(&sticks.ly, raw + 20, 4);
+        return sticks;
     }
 
     bool silenceDue(bool latched, bool publishing, double state_age_s)

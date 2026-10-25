@@ -9,17 +9,22 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}  
 "msg/HandCmd.msg"
+"msg/HandState.msg"
 "msg/ImuState.msg"                                             
 "msg/LowCmd.msg" 
 "msg/LowState.msg" 
 "msg/MotorCmd.msg" 
 "msg/MotorState.msg" 
+"msg/RemoteState.msg"
 "msg/RobotCmd.msg" 
+"msg/RobotState.msg"
 "msg/TestSignal.msg"
 "srv/SetDefaultPosition.srv"
+DEPENDENCIES builtin_interfaces
 )
 
 

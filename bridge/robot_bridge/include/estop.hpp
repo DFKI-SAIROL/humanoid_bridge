@@ -72,6 +72,14 @@ namespace sairol_bridge::estop
     uint16_t remoteKeys(const uint8_t *raw, size_t size);
     // Bytes 0-1 are 0x55 0x51 while a remote is connected; all 40 are 0 without one.
     bool remoteHeader(const uint8_t *raw, size_t size);
+    // The names of the keys held in `keys`, as in the config, in bit order.
+    std::vector<std::string> keyNames(uint16_t keys);
+    struct Sticks
+    {
+        float lx{0}, ly{0}, rx{0}, ry{0};
+    };
+    // LowState.wireless_remote floats: lx 4-7, rx 8-11, ry 12-15, ly 20-23. All 0 if the buffer is short.
+    Sticks remoteSticks(const uint8_t *raw, size_t size);
     // A publishing latch goes silent once /lowstate is older than STATE_LOSS_S + SILENCE_AFTER_S.
     bool silenceDue(bool latched, bool publishing, double state_age_s);
     bool held(uint16_t keys, uint16_t combo);

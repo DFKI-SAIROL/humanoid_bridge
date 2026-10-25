@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <limits>
 
 using namespace sairol_bridge;
@@ -392,6 +393,31 @@ TEST(Remote, HeaderMeansConnected)
     const uint8_t off[40] = {};
     EXPECT_TRUE(remoteHeader(on, sizeof(on)));
     EXPECT_FALSE(remoteHeader(off, sizeof(off)));     // measured: all 40 bytes 0 with the remote off
+}
+
+TEST(Remote, KeyNamesInBitOrder)
+{
+    EXPECT_TRUE(keyNames(0).empty());
+    EXPECT_EQ(keyNames(KEY_R2 | KEY_R1 | KEY_LEFT), (std::vector<std::string>{"R1", "R2", "LEFT"}));
+    EXPECT_EQ(parseCombo(keyNames(KEY_L1 | KEY_A)), KEY_L1 | KEY_A);   // the config reads them back
+}
+
+TEST(Remote, SticksAtTheirOffsets)
+{
+    uint8_t raw[40] = {0x55, 0x51};
+    const float lx = 0.25f, rx = -0.5f, ry = 0.75f, l2 = 1.0f, ly = -0.125f;
+    std::memcpy(raw + 4, &lx, 4);
+    std::memcpy(raw + 8, &rx, 4);
+    std::memcpy(raw + 12, &ry, 4);
+    std::memcpy(raw + 16, &l2, 4);   // L2's analog value: not a stick
+    std::memcpy(raw + 20, &ly, 4);
+    const Sticks sticks = remoteSticks(raw, sizeof(raw));
+    EXPECT_EQ(sticks.lx, lx);
+    EXPECT_EQ(sticks.ly, ly);
+    EXPECT_EQ(sticks.rx, rx);
+    EXPECT_EQ(sticks.ry, ry);
+    EXPECT_EQ(remoteSticks(raw, 23).lx, 0.0f);
+    EXPECT_EQ(remoteSticks(nullptr, 40).ry, 0.0f);
 }
 
 TEST(Remote, ShortOrNullIsNotConnected)

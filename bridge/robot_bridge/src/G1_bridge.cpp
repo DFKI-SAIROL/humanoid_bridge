@@ -82,6 +82,7 @@ sairol_bridge::G1Bridge::G1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         hand.params.resize(numHandJoint_);
 
         hand.cmd_pub = nh->create_publisher<unitree_hg::msg::HandCmd>(cmd_topic, 10);
+        hand.state_pub = nh->create_publisher<bridge_interface::msg::HandState>("/hand_state/" + hand.name, 1);
 
         hand.state_sub = nh->create_subscription<unitree_hg::msg::HandState>(
             "/dex3/" + hand.name + "/state", 1,
@@ -220,14 +221,18 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     imu_.gyroscope = msg->imu_state.gyroscope;
     imu_.accelerometer = msg->imu_state.accelerometer;
     imu_.quaternion = msg->imu_state.quaternion;
+    auto state = robotState_(msg->tick);
     lock.unlock();
 
     noteLink_(msg->tick);
 
     // The remote rides on LowState at 500 Hz; /wirelesscontroller stays silent in debug mode.
-    const uint16_t keys = estop::remoteKeys(msg->wireless_remote.data(), msg->wireless_remote.size());
+    const uint8_t *raw = msg->wireless_remote.data();
+    const size_t raw_size = msg->wireless_remote.size();
+    const uint16_t keys = estop::remoteKeys(raw, raw_size);
     remoteKeys_ = keys;
-    if (estop::remoteHeader(msg->wireless_remote.data(), msg->wireless_remote.size()))
+    const bool header = estop::remoteHeader(raw, raw_size);
+    if (header)
     {
         lastRemoteHeader_ = steadyClock_.now().seconds();
     }
@@ -236,6 +241,15 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     {
         enterStop_(remote);
     }
+
+    state.remote.connected = header;
+    state.remote.pressed = estop::keyNames(keys);
+    const estop::Sticks sticks = estop::remoteSticks(raw, raw_size);
+    state.remote.lx = sticks.lx;
+    state.remote.ly = sticks.ly;
+    state.remote.rx = sticks.rx;
+    state.remote.ry = sticks.ry;
+    robotStatePublisher_->publish(state);
 }
 
 void sairol_bridge::G1Bridge::publishLowCommand_()
@@ -490,6 +504,7 @@ bool sairol_bridge::G1Bridge::loadHandParameters_()
             return false;
         }
 
+        hands_[side].joint_names = joint_names;
         auto &joints = hands_[side].joints;
         joints.clear();
         for (const auto &name : joint_names)
@@ -543,6 +558,19 @@ void sairol_bridge::G1Bridge::handStateHandler_(int side, unitree_hg::msg::HandS
     hand.state = *msg;
     hand.state_time = steadyClock_.now();
     hand.state_seen = true;
+
+    bridge_interface::msg::HandState state;
+    state.stamp = nh->now();
+    state.joint_names = hand.joint_names;
+    const size_t n = std::min(hand.joint_names.size(), msg->motor_state.size());
+    for (size_t i = 0; i < n; ++i)
+    {
+        state.q.push_back(msg->motor_state[i].q);
+        state.dq.push_back(msg->motor_state[i].dq);
+        state.tau_est.push_back(msg->motor_state[i].tau_est);
+    }
+    state.joint_names.resize(n);
+    hand.state_pub->publish(state);
 }
 
 bool sairol_bridge::G1Bridge::checkHandState_(int side)

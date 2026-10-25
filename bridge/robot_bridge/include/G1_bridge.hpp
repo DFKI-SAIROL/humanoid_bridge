@@ -13,6 +13,7 @@
 #include "unitree_hg/msg/hand_cmd.hpp"
 #include "unitree_hg/msg/hand_state.hpp"
 #include "bridge_interface/msg/hand_cmd.hpp"
+#include "bridge_interface/msg/hand_state.hpp"
 #include "common/motor_crc_hg.h"
 
 
@@ -51,6 +52,7 @@ struct HandChannel
     std::string name;
 
     std::vector<Joint> joints;      // numHandJoint_, in DDS order
+    std::vector<std::string> joint_names;   // the same order, for /hand_state
     std::vector<CmdParams> params;
 
     bridge_interface::msg::HandCmd desired;
@@ -66,6 +68,7 @@ struct HandChannel
     rclcpp::Subscription<unitree_hg::msg::HandState>::SharedPtr state_sub;
     rclcpp::Subscription<bridge_interface::msg::HandCmd>::SharedPtr cmd_sub;
     rclcpp::Publisher<unitree_hg::msg::HandCmd>::SharedPtr cmd_pub;
+    rclcpp::Publisher<bridge_interface::msg::HandState>::SharedPtr state_pub;   // /hand_state/<name>
 };
 
 class G1Bridge : public BridgeCore {

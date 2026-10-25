@@ -186,6 +186,8 @@ ros2 service call /estop_hold std_srvs/srv/Trigger {}        # G1: latched, hold
 ros2 service call /estop_reset std_srvs/srv/Trigger {}       # refused while the cause lasts
 ros2 topic echo /bridge_state                                # G1 only
 ros2 topic echo /robot_link                                  # G1 only: OK, LOST, BACK, RESTARTED (docs/estop.md)
+ros2 topic echo /robot_state                                 # G1 only: bridge_interface/RobotState, names + q/dq/tau, IMU, remote by name
+ros2 topic echo /hand_state/left                             # G1 Dex3: bridge_interface/HandState
 ```
 
 ### G1 Dex3 hands

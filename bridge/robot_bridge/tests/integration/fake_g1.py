@@ -12,6 +12,7 @@ import argparse
 import json
 import math
 import signal
+import struct
 import sys
 import time
 
@@ -23,6 +24,14 @@ from unitree_hg.msg import LowCmd, LowState
 NUM_JOINT = 29
 STATE_PERIOD = 0.002  # the bridge aborts on /lowstate older than 0.2 s
 MODE_MACHINE = 5  # G1 type; the bridge copies it into every /lowcmd
+# Values drive_robot_state.py finds again on /robot_state.
+GYRO = [0.1, 0.2, 0.3]
+ACC = [0.0, 0.0, 9.81]
+STICKS = {"lx": 0.25, "rx": -0.5, "ry": 0.75, "ly": -0.125}  # wireless_remote at 4, 8, 12, 20
+
+
+def tau_est(i):
+    return 0.01 * i
 
 
 class FakeG1(Node):
@@ -56,6 +65,10 @@ class FakeG1(Node):
         self.state.imu_state.quaternion = [1.0, 0.0, 0.0, 0.0]
         self.state.wireless_remote[0] = 0x55  # header bytes as the real G1 sends them
         self.state.wireless_remote[1] = 0x51
+        self.state.imu_state.gyroscope = GYRO
+        self.state.imu_state.accelerometer = ACC
+        for offset, name in ((4, "lx"), (8, "rx"), (12, "ry"), (20, "ly")):
+            self.state.wireless_remote[offset : offset + 4] = list(struct.pack("<f", STICKS[name]))
 
         self.q = [float(start_q)] * NUM_JOINT
         self.samples = []
@@ -77,6 +90,7 @@ class FakeG1(Node):
         for i in range(NUM_JOINT):
             self.state.motor_state[i].q = self.q[i]
             self.state.motor_state[i].dq = 0.0
+            self.state.motor_state[i].tau_est = tau_est(i)
         if self.nan_q:
             self.state.motor_state[0].q = math.nan
         self.state.motor_state[0].dq = self.dq0

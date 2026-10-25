@@ -49,7 +49,29 @@ namespace sairol_bridge
             "/bridge_state", rclcpp::QoS(1).reliable().transient_local());
         publishBridgeState_(describeState_());
 
+        robotStatePublisher_ = nh->create_publisher<bridge_interface::msg::RobotState>("/robot_state", 1);
+
         last_state_time_ = steadyClock_.now();
+    }
+
+    bridge_interface::msg::RobotState BridgeCore::robotState_(uint32_t tick)
+    {
+        bridge_interface::msg::RobotState state;
+        state.stamp = nh->now();
+        state.tick = tick;
+        state.joint_names = jointNames_;
+        const size_t n = std::min(jointNames_.size(), currentState_.motor_state.size());
+        state.q.resize(n);
+        state.dq.resize(n);
+        state.tau_est.resize(n);
+        for (size_t i = 0; i < n; ++i)
+        {
+            state.q[i] = currentState_.motor_state[i].q;
+            state.dq[i] = currentState_.motor_state[i].dq;
+            state.tau_est[i] = currentState_.motor_state[i].tau_est;
+        }
+        state.imu = imu_;
+        return state;
     }
 
     void BridgeCore::createArmingServices_()
@@ -210,6 +232,7 @@ namespace sairol_bridge
         if (nh->get_parameter("joint_names", joint_names))
         {
             joints_.clear();
+            jointNames_.clear();
             bool ret = true;
             int own_rate_limits = 0;
             for (const auto &name : joint_names)
@@ -250,6 +273,7 @@ namespace sairol_bridge
                     return false;
                 }
                 joints_.push_back(joint_info);
+                jointNames_.push_back(name);
             }
             if (!ret)
             {
