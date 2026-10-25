@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AMO stands the MuJoCo G1 through G1_bridge: g1_sim, G1_bridge, amo_controller, drive_amo_sim.py.
+# AMO stands the MuJoCo G1 through G1_bridge: robot_sim, G1_bridge, amo_controller, drive_amo_sim.py.
 # Needs: the workspace with robot_bridge and unitree_hg sourced; AMO_PYTHON with CUDA torch,
 # pinocchio and mujoco (default psi0's .venv-psi); PSI0_ROOT; the mjlab g1.xml ($G1_MJCF).
 # Re-runs itself in a network namespace with only lo: no packet reaches a cabled robot.
@@ -20,7 +20,7 @@ source "$REPO/bridge/robot_bridge/tests/integration/loopback_dds.sh"
 PARAMS="$REPO/bridge/robot_bridge/params/G1_config.yaml"
 AMO_PYTHON="${AMO_PYTHON:-${PSI0_ROOT:-$HOME/github/psi0}/.venv-psi/bin/python}"
 OUT="${AMO_SIM_OUT:-$(mktemp -d)}"
-export PYTHONPATH="$REPO/bridge/robot_bridge:$REPO/robot_stacks/g1/g1_stack:$REPO/robot_stacks/g1/g1_sim:$REPO/robot_stacks/g1/g1_camera:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO/bridge/robot_bridge:$REPO/robot_stacks/g1/g1_stack:$REPO/robot_stacks/sim/robot_sim:$REPO/robot_stacks/g1/g1_camera:${PYTHONPATH:-}"
 
 SIM_PID=""; BRIDGE_PID=""; AMO_PID=""
 cleanup() {
@@ -35,7 +35,7 @@ command -v ros2 >/dev/null || { echo "source the ROS workspace first"; exit 1; }
 [ -x "$AMO_PYTHON" ] || { echo "no AMO_PYTHON at $AMO_PYTHON"; exit 1; }
 echo "logs: $OUT"
 
-setsid "$AMO_PYTHON" -m g1_sim.node --no-viewer --no-camera > "$OUT/sim.log" 2>&1 &
+setsid "$AMO_PYTHON" -m robot_sim.node --robot g1 --no-viewer --no-camera > "$OUT/sim.log" 2>&1 &
 SIM_PID=$!; disown "$SIM_PID"
 sleep 4
 grep -q "gantry on" "$OUT/sim.log" || { echo "sim did not come up:"; tail -20 "$OUT/sim.log"; exit 1; }

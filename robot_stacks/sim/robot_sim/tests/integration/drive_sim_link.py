@@ -1,4 +1,4 @@
-"""Drives /robot_link of a G1_bridge against g1_sim: link drop and reboot, then a fresh bring-up.
+"""Drives /robot_link of a G1_bridge against robot_sim (G1): link drop and reboot, then a fresh bring-up.
 
 Exit 1 on failure. run_sim_link_test.sh runs `restart`, restarts the bridge with g1-bringup.sh --sim,
 then runs `rebrought`.
@@ -19,8 +19,8 @@ NUM_MOTORS = 29
 class Driver(LinkDriver):
     def __init__(self, node):
         super().__init__(node)
-        self.link_down = node.create_publisher(Float32, "/g1_sim/link", 10)
-        self.sim_reboot = node.create_publisher(Float32, "/g1_sim/reboot", 10)
+        self.link_down = node.create_publisher(Float32, "/robot_sim/link", 10)
+        self.sim_reboot = node.create_publisher(Float32, "/robot_sim/reboot", 10)
         node.create_subscription(LowState, "/lowstate", self._on_low, 10)
         self.low = None
 
@@ -37,7 +37,7 @@ class Driver(LinkDriver):
         self.check("bridge up: /start_control", ok)
         inputs = (self.link_down, self.sim_reboot)
         matched = self.wait(lambda: all(p.get_subscription_count() for p in inputs), 5.0)
-        self.check("g1_sim inputs matched", matched)
+        self.check("robot_sim inputs matched", matched)
         self.check("/lowstate from the sim", self.wait(lambda: self.low is not None, 5.0))
         self.check_link("a new bridge starts OK", "OK")
         self.check_state("starts DISARMED", "DISARMED")

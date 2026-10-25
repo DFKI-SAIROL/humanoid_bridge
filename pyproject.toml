@@ -18,7 +18,7 @@ select = ["E", "F", "W", "I", "UP", "B"]
 "bridge/robot_bridge/robot_bridge/robot_client.py" = ["E501", "F841"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["robot_bridge", "g1_stack", "g1_camera", "g1_sim"]
+known-first-party = ["robot_bridge", "g1_stack", "g1_camera", "robot_sim"]
 
 [tool.pytest.ini_options]
 testpaths = ["bridge", "robot_stacks", "tools"]

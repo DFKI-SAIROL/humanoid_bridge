@@ -6,7 +6,7 @@ target-version = "py310"
 select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["robot_bridge", "g1_sim", "g1_camera"]
+known-first-party = ["robot_bridge", "robot_sim", "g1_camera"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

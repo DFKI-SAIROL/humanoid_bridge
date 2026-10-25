@@ -2,7 +2,7 @@
 
 import json
 
-from g1_sim.motion import (
+from robot_sim.motion import (
     BAD_PARAMETER,
     BOOT_MODE,
     CHECK_MODE,

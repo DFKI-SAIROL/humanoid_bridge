@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from g1_sim.guard import cyclone_interfaces, not_loopback
+from robot_sim.guard import cyclone_interfaces, not_loopback
 
 REPO = pathlib.Path(__file__).resolve().parents[4]
 WRAP = "<CycloneDDS><Domain><General>{}</General></Domain></CycloneDDS>"

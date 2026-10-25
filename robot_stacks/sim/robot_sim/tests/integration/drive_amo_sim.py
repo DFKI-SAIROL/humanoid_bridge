@@ -1,4 +1,4 @@
-"""Drives G1_bridge + amo_controller against g1_sim: AMO must stand the G1 with the gantry off.
+"""Drives G1_bridge + amo_controller against robot_sim (G1): AMO must stand the G1 with the gantry off.
 
 Exit 1 on failure. run_sim_amo_test.sh starts the sim, the bridge and the controller first.
 """
@@ -9,7 +9,7 @@ import time
 import numpy as np
 import rclpy
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import Bool, String, UInt16
+from std_msgs.msg import Bool, String
 from unitree_hg.msg import LowState
 
 from g1_stack.amo.goal import GoalPublisher, make_goal
@@ -17,7 +17,6 @@ from g1_stack.amo.policy import DEFAULT_DOF_POS, quat_to_euler
 from robot_bridge.cmd_client import RobotCmdClient
 
 NUM_MOTORS = 29
-KEY_R1, KEY_L1, KEY_R2 = 1 << 0, 1 << 1, 1 << 4
 HOLD_SECONDS = 3.0  # in the gantry, AMO driving, before the drop
 STAND_SECONDS = 30.0
 MAX_TILT = 0.35  # rad, roll or pitch; the bridge latches at 1.0
@@ -30,8 +29,8 @@ class Driver:
     def __init__(self, node):
         self.node = node
         self.client = RobotCmdClient(node, num_dof=NUM_MOTORS, control_frequency=50.0)
-        self.gantry = node.create_publisher(Bool, "/g1_sim/gantry", 10)
-        self.keys = node.create_publisher(UInt16, "/g1_sim/keys", 10)
+        self.gantry = node.create_publisher(Bool, "/robot_sim/gantry", 10)
+        self.buttons = node.create_publisher(String, "/robot_sim/buttons", 10)
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         node.create_subscription(String, "/bridge_state", self._on_state, latched)
@@ -105,9 +104,9 @@ class Driver:
 
         self.gantry.publish(Bool(data=True))
         self.spin(1.0)
-        self.keys.publish(UInt16(data=KEY_R1 | KEY_R2))  # remote_combo_damp
+        self.buttons.publish(String(data="R1+R2"))  # remote_combo_damp
         self.spin(0.5)
-        self.keys.publish(UInt16(data=0))
+        self.buttons.publish(String(data=""))
         state = str(self.state)
         self.check("remote R1+R2 latches damp", state.startswith("LATCHED damp"), state)
         print(f"note  bridge states seen: {sorted(self.states)}", flush=True)

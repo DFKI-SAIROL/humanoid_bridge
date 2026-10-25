@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>g1_sim</name>
+  <name>robot_sim</name>
   <version>0.1.0</version>
-  <description>MuJoCo G1 that stands in for the robot on /lowstate and /lowcmd.</description>
+  <description>MuJoCo robot (G1) that stands in for the robot on its native topics.</description>
   <maintainer email="lukasbmueller@gmail.com">Lukas Mueller</maintainer>
   <license>MIT</license>
 
@@ -13,6 +13,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>unitree_hg</exec_depend>
   <exec_depend>unitree_api</exec_depend>
+  <exec_depend>bridge_interface</exec_depend>   <!-- robot_sim.arm reads /robot_state -->
   <exec_depend>g1_camera</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
 

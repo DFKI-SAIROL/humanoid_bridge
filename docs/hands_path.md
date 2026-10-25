@@ -124,7 +124,7 @@ GEAR's own gains, because it is a drop-in and its caller passes none.
 
 ## Verify
 
-Verified against the fake and `g1_sim` only. Dex3 is mounted on the lab G1
+Verified against the fake and `robot_sim` only. Dex3 is mounted on the lab G1
 (2026-10-20); no hand command has gone through the bridge on hardware yet.
 
 ```bash

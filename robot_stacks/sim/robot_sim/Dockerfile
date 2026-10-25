@@ -1,4 +1,4 @@
-# g1_sim and G1_bridge in one container: ROS 2 Humble, MuJoCo, offscreen GL (EGL, OSMesa).
+# robot_sim and the bridges in one container (image robot-sim): ROS 2 Humble, MuJoCo, offscreen GL.
 FROM docker.io/library/ros:humble-ros-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         iproute2 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir mujoco==3.3.6 pyzmq opencv-python-headless==4.10.0.84
-# For tools/g1-release-lowcmd.py against g1_sim's motion switcher. --no-deps: its opencv-python
+# For tools/g1-release-lowcmd.py against robot_sim's motion switcher. --no-deps: its opencv-python
 # would overwrite the headless cv2.
 RUN pip3 install --no-cache-dir cyclonedds==0.10.2 \
     && pip3 install --no-cache-dir --no-deps \

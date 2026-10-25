@@ -1,15 +1,13 @@
-"""The d435 view as a g1_camera source: rendered on its own thread, read as BGR."""
+"""The robot's camera as a g1_camera source: rendered on its own thread, read as BGR."""
 
 import threading
 import time
 
 import mujoco
 
-from g1_sim.model import CAMERA
-
 
 class SimCamera:
-    """Renders `CAMERA` at `hz`; calling it returns the newest BGR frame."""
+    """Renders the robot's camera at `hz`; calling it returns the newest BGR frame."""
 
     def __init__(self, sim, lock, size=(640, 480), hz=30.0):
         self.sim = sim
@@ -44,7 +42,7 @@ class SimCamera:
         due = time.monotonic()
         while not self._stop.is_set():
             with self.lock:
-                renderer.update_scene(self.sim.data, camera=CAMERA)
+                renderer.update_scene(self.sim.data, camera=self.sim.robot.camera)
             self.frame = renderer.render()[:, :, ::-1].copy()  # RGB -> BGR, as cv2 sources
             self._ready.set()
             due = max(due + self.period, time.monotonic())

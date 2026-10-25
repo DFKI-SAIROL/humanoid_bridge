@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# G1_bridge's /robot_link against g1_sim: link drop, reboot, then the restart bring-up through
+# G1_bridge's /robot_link against robot_sim: link drop, reboot, then the restart bring-up through
 # tools/g1-bringup.sh --sim, which releases the sim's motion service with unitree_sdk2py.
-# Needs: the workspace with robot_bridge and g1_sim sourced, $G1_MJCF, unitree_sdk2py (the g1-sim image).
+# Needs: the workspace with robot_bridge and robot_sim sourced, $G1_MJCF, unitree_sdk2py (the robot-sim image).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,7 +36,7 @@ or_tail() {   # or_tail <log> <command...>
     if ! "$@"; then echo; echo "bring-up log, last 30 lines:"; tail -30 "$log"; exit 1; fi
 }
 
-setsid ros2 run g1_sim g1_sim --no-viewer --no-camera > "$OUT/sim.log" 2>&1 &
+setsid ros2 run robot_sim robot_sim --robot g1 --no-viewer --no-camera > "$OUT/sim.log" 2>&1 &
 SIM_PID=$!; disown "$SIM_PID"
 sleep 3
 grep -q "gantry on" "$OUT/sim.log" || { echo "sim did not come up:"; tail -20 "$OUT/sim.log"; exit 1; }

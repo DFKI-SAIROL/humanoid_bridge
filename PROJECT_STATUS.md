@@ -15,7 +15,7 @@ deploy layers stay independent of it.
 
 ```
 bridge/           upstream-bound: bridge_interface (msgs, srvs), robot_bridge (C++ + Python client)
-robot_stacks/     per-robot deploy layers; g1/ holds g1_stack, g1_camera and g1_sim
+robot_stacks/     per-robot deploy layers; g1/ holds g1_stack and g1_camera; sim/robot_sim: the MuJoCo sim of every robot
 scripts/          environment setup, sourced not run
 thirdparty/       vendored unitree_ros2, booster_ros2_interface, aimdk_msgs
 ```
@@ -57,9 +57,10 @@ _One line each, dated, with a pointer (commit or PR)._
 - 2026-10-22: the gate is `tools/test.sh --docker`; a stage that skips exits 2 unless `--allow-skip` — PR "chore: bridge codebase health" (BT12, BT1)
 - 2026-10-22: `camera_server` binds `--bind`, default the Jetson's 192.168.123.164, never 0.0.0.0 — same PR (B12b)
 - 2026-10-24: G1 `/robot_link` tells a link drop (`BACK … no_restart`, tick moved on) from a reboot (`RESTARTED`); after `RESTARTED` arming and `/estop_reset` stay refused until a new bridge (bring-up releases) — `docs/estop.md` § Robot link, PR #36
-- 2026-10-24: `g1_sim` motors go passive 0.4 s after the last `/lowcmd`, as the G1 (G0); its reboot starts a fake motion service that unitree_sdk2py releases — `robot_stacks/g1/g1_sim/README.md`, PR #36
+- 2026-10-25: `g1_sim` became `robot_sim` (`--robot g1`; T1, Go2 next): one physics, one module per robot at its vendor topics; inputs `/robot_sim/*`, buttons by name — `robot_stacks/sim/robot_sim/README.md`, multi-robot track (g1_web_commander `docs/multi-robot.md`)
+- 2026-10-24: `g1_sim` motors go passive 0.4 s after the last `/lowcmd`, as the G1 (G0); its reboot starts a fake motion service that unitree_sdk2py releases — `robot_stacks/sim/robot_sim/README.md`, PR #36
 - 2026-10-24: Ready (`/ready_position_control`) also ramps each Dex3 hand with fresh state to `hand_ready_q` (open) and holds it; a hand failure never blocks the body; arming stays body-only — `docs/hands_path.md`, PR from `feat-hands-ready-pos`
-- 2026-10-22: the G1 sim is an own MuJoCo node `g1_sim` on mjlab `g1.xml`, not GEAR's `base_sim` (needs rclpy the SIMPLE image lacks, no remote header, `mode_machine` 0, other model) — `robot_stacks/g1/g1_sim/README.md`
+- 2026-10-22: the G1 sim is an own MuJoCo node `g1_sim` on mjlab `g1.xml`, not GEAR's `base_sim` (needs rclpy the SIMPLE image lacks, no remote header, `mode_machine` 0, other model) — `robot_stacks/sim/robot_sim/README.md`
 - 2026-09-09: `examples/` sits inside `robot_bridge`, the package it demonstrates, so a subtree split of `bridge/` carries it; excluded from lint as vendored upstream code — same commit
 
 ## Roadmap

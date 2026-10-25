@@ -350,7 +350,7 @@ bool sairol_bridge::G1Bridge::initControl_(bridge_interface::msg::RobotCmd defau
         // dq and tau too: the last /robot_cmd's would otherwise ride on the hold, with no timeout.
         for (int i = 0; i < numJoint_; ++i)
         {
-            // Gate 1 clamps every frame anyway; a pose resting past a limit (g1_sim's waist
+            // Gate 1 clamps every frame anyway; a pose resting past a limit (robot_sim's waist
             // pitch at 0.529) would otherwise log "outside [...]: clamped" every second.
             const float_t q = std::clamp(currentState_.motor_state[i].q, joints_[i].q_min, joints_[i].q_max);
             lastCommand_.motor_cmd[i].q = q;

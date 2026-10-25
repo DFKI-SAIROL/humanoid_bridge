@@ -1,4 +1,4 @@
-"""Drives a running G1_bridge against g1_sim and checks the simulated joints.
+"""Drives a running G1_bridge against robot_sim (G1) and checks the simulated joints.
 
 Exit 1 on failure. run_sim_bridge_test.sh starts the sim and the bridge first.
 """
@@ -13,16 +13,15 @@ import rclpy
 import yaml
 from rcl_interfaces.srv import GetParameters
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import String, UInt16
+from std_msgs.msg import String
 from unitree_hg.msg import HandState, LowState
 
 from g1_camera import wire
 from g1_camera.client import CameraClient
-from g1_sim.model import DEFAULT_MJCF
+from robot_sim.robots.g1 import DEFAULT_MJCF
 from robot_bridge.cmd_client import RobotCmdClient
 
 NUM_MOTORS = 29
-KEY_R1, KEY_L1, KEY_R2 = 1 << 0, 1 << 1, 1 << 4
 ELBOWS = (18, 25)
 TOL = 0.05  # rad
 RAMP_SECONDS = 3.0  # `duration` 2.0 plus margin
@@ -50,7 +49,7 @@ class Driver:
         self.params = params
         self.client = RobotCmdClient(node, num_dof=NUM_MOTORS, control_frequency=50.0)
         self.client.set_default_cmd(params["ready_q"], params["kp"], params["kd"])
-        self.keys = node.create_publisher(UInt16, "/g1_sim/keys", 10)
+        self.buttons = node.create_publisher(String, "/robot_sim/buttons", 10)
         latched = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -94,7 +93,7 @@ class Driver:
         self.check("camera frame on ZMQ", rgb.shape == (height, width, 3), str(rgb.shape))
         url = f"http://127.0.0.1:{wire.DEFAULT_PREVIEW_PORT}"
         health = json.load(urllib.request.urlopen(f"{url}/health", timeout=2))
-        self.check("camera preview /health", health["source"] == "g1_sim d435", str(health))
+        self.check("camera preview /health", health["source"] == "robot_sim g1 d435", str(health))
         jpeg = urllib.request.urlopen(f"{url}/frame.jpg", timeout=2).read()
         self.check("camera preview /frame.jpg", jpeg[:2] == b"\xff\xd8", f"{len(jpeg)} bytes")
 
@@ -118,7 +117,7 @@ class Driver:
             self.check(f"{side} hand open at hand_ready_q", err < HAND_TOL, f"max error {err:.3f} rad")
 
     def check_mjcf(self):
-        client = self.node.create_client(GetParameters, "/g1_sim/get_parameters")
+        client = self.node.create_client(GetParameters, "/robot_sim/get_parameters")
         client.wait_for_service(timeout_sec=5.0)
         future = client.call_async(GetParameters.Request(names=["mjcf"]))
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
@@ -164,9 +163,9 @@ class Driver:
 
         self.check_camera()
 
-        self.keys.publish(UInt16(data=KEY_R1 | KEY_R2))  # remote_combo_damp
+        self.buttons.publish(String(data="R1+R2"))  # remote_combo_damp
         self.spin(0.5)
-        self.keys.publish(UInt16(data=0))
+        self.buttons.publish(String(data=""))
         state = str(self.state)
         self.check("remote R1+R2 latches damp", state.startswith("LATCHED damp"), state)
 

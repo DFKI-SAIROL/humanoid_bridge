@@ -1,4 +1,4 @@
-"""Unitree's motion switcher, faked: which mode holds /lowcmd. No ROS.
+"""Unitree's motion switcher, faked: which mode holds the command topic. No ROS.
 
 Answers unitree_sdk2py's MotionSwitcherClient, whose requests arrive on rt/api/motion_switcher/request.
 """

@@ -66,7 +66,7 @@ def main(argv=None):
         return 1
 
     if args.iface == "lo":
-        # g1_sim: lo has no MULTICAST flag, so the SDK's multicast="default" finds no peer and every call times out.
+        # robot_sim: lo has no MULTICAST flag, so the SDK's multicast="default" finds no peer and every call times out.
         import unitree_sdk2py.core.channel as channel
 
         channel.ChannelConfigHasInterface = channel.ChannelConfigHasInterface.replace(

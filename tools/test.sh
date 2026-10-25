@@ -23,7 +23,7 @@
 #          state stops (hands-stale), the left hand overheats (hands-hot), Ready opens
 #          both hands (hands-ready), Ready with the left hand silent (hands-ready-one)
 #   config the real G1_bridge refuses broken copies of G1_config.yaml
-#   sim    opt-in (--sim), host only: the real G1_bridge against g1_sim (MuJoCo): arm,
+#   sim    opt-in (--sim), host only: the real G1_bridge against robot_sim (MuJoCo G1): arm,
 #          hold, /robot_cmd, remote damp; sim-link: link drop, reboot, g1-bringup.sh --sim release
 #
 # No stage touches hardware. Nothing here opens a real NIC: the DDS settings
@@ -71,7 +71,7 @@ Options:
   --gates               target-gate integration test only
   --hands               hand-path integration test only
   --config              broken-config refusal test only
-  --sim                 G1_bridge against g1_sim only, not in the default set; needs g1_sim
+  --sim                 G1_bridge against robot_sim only, not in the default set; needs robot_sim
                         built and $G1_MJCF, so not with --docker
   --rmw <impl>          cyclonedds | fastrtps | auto (default auto)
   --python <path>       interpreter for the unit stage (default python3, or $PYTHON)
@@ -361,11 +361,11 @@ if [ "$RUN_CONFIG" = 1 ]; then
     stage_integration config "$INTEGRATION/run_config_test.sh"
 fi
 if [ "$RUN_SIM" = 1 ]; then
-    if command -v ros2 >/dev/null && ! ros2 pkg prefix g1_sim >/dev/null 2>&1; then
-        record sim SKIP "g1_sim not in the sourced workspace; tools/build.sh"
+    if command -v ros2 >/dev/null && ! ros2 pkg prefix robot_sim >/dev/null 2>&1; then
+        record sim SKIP "robot_sim not in the sourced workspace; tools/build.sh"
     else
-        stage_integration sim "$REPO/robot_stacks/g1/g1_sim/tests/integration/run_sim_bridge_test.sh"
-        stage_integration sim-link "$REPO/robot_stacks/g1/g1_sim/tests/integration/run_sim_link_test.sh"
+        stage_integration sim "$REPO/robot_stacks/sim/robot_sim/tests/integration/run_sim_bridge_test.sh"
+        stage_integration sim-link "$REPO/robot_stacks/sim/robot_sim/tests/integration/run_sim_link_test.sh"
     fi
 fi
 

@@ -1,4 +1,4 @@
-"""The sim talks DDS over loopback only: on a robot NIC, G1_bridge reads simulated state."""
+"""The sim talks DDS over loopback only: on a robot NIC, the bridge reads simulated state."""
 
 import re
 from pathlib import Path
