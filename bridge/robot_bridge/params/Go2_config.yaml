@@ -1,0 +1,169 @@
+# Unitree Go2: 12 motors in unitree_go's 20-slot frame (go2_frame.hpp).
+# remote control, read from /lowstate.wireless_remote (docs/estop.md), as on the G1:
+# e-stop damp: R1 + R2    e-stop hold: L1 + R1    (set under estop:)
+# Ranges: unitree go2 URDF (= the ncbf model). kp 20 / kd 0.5: the ncbf deploy's gains.
+# Ready: the stand-up ramp from lying to ready_q over `duration`; a limp Go2 lies on the floor.
+# Release before the bridge: tools/robot-bringup.sh --robot go2 (sport StandDown, then ReleaseMode).
+
+
+robot_bridge:
+  ros__parameters:
+    robot_name: "Go2"
+    duration: 3.0          # the stand-up ramp
+    control_dt: 0.002
+    empty_joint_index: -1
+    num_joint: 12
+    torque_control: false
+    imu_rpy_threshold: 1.0 #radians
+
+    # docs/estop.md. Operator e-stops have a fixed mode; these set the rest.
+    estop:
+      damp_kd: 2.0                      # float: a damped Go2 sinks to the floor
+      remote_combo_damp: ["R1", "R2"]
+      remote_combo_hold: ["L1", "R1"]
+      require_remote: true
+      mode:                             # damp | hold
+        stop: hold
+        imu: damp
+        state_loss: damp
+        state_invalid: damp
+        cmd_timeout: hold
+
+    # Gate 5 (docs/psi0_gates.md): every Go2 joint is strong (lower_limbs).
+    upper_limbs_kp_min: 0.0
+    upper_limbs_kp_max: 100.0
+    upper_limbs_kd_min: 0.0
+    upper_limbs_kd_max: 10.0
+    lower_limbs_kp_min: 0.0
+    lower_limbs_kp_max: 100.0
+    lower_limbs_kd_min: 0.0
+    lower_limbs_kd_max: 10.0
+
+    # Gate 2: max target speed, rad/s.
+    q_rate_limit_default: 6.0
+
+    joint_names: ["FR_hip", "FR_thigh", "FR_calf", "FL_hip", "FL_thigh", "FL_calf", "RR_hip", "RR_thigh", "RR_calf", "RL_hip", "RL_thigh", "RL_calf"]
+
+    # ncbf's nominal stand; lying (measured on the real Go2): hip 0, thigh 1.26, calf -2.80.
+    ready_q: [-0.1, 0.8, -1.5,  0.1, 0.8, -1.5,  -0.1, 0.8, -1.5,  0.1, 0.8, -1.5]
+
+    FR_hip:
+      idx: 0
+      q_min: -1.0472
+      q_max: 1.0472
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    FR_thigh:
+      idx: 1
+      q_min: -1.5708
+      q_max: 3.4907
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    FR_calf:
+      idx: 2
+      q_min: -2.7227
+      q_max: -0.83776
+      dq_limit: 15.7
+      tau_limit: 45.43
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    FL_hip:
+      idx: 3
+      q_min: -1.0472
+      q_max: 1.0472
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    FL_thigh:
+      idx: 4
+      q_min: -1.5708
+      q_max: 3.4907
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    FL_calf:
+      idx: 5
+      q_min: -2.7227
+      q_max: -0.83776
+      dq_limit: 15.7
+      tau_limit: 45.43
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    RR_hip:
+      idx: 6
+      q_min: -1.0472
+      q_max: 1.0472
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    RR_thigh:
+      idx: 7
+      q_min: -0.5236
+      q_max: 4.5379
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    RR_calf:
+      idx: 8
+      q_min: -2.7227
+      q_max: -0.83776
+      dq_limit: 15.7
+      tau_limit: 45.43
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    RL_hip:
+      idx: 9
+      q_min: -1.0472
+      q_max: 1.0472
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    RL_thigh:
+      idx: 10
+      q_min: -0.5236
+      q_max: 4.5379
+      dq_limit: 30.1
+      tau_limit: 23.7
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false
+    RL_calf:
+      idx: 11
+      q_min: -2.7227
+      q_max: -0.83776
+      dq_limit: 15.7
+      tau_limit: 45.43
+      kp: 20.0
+      kd: 0.5
+      if_strong_joint: true
+      if_parallel_joint: false

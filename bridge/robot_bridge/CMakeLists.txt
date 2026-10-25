@@ -93,6 +93,31 @@ install(
   RUNTIME DESTINATION lib/${PROJECT_NAME}
 )
 
+# Unitree Go2: unitree_go, 12 motors in the 20-slot frame (go2_frame.hpp).
+add_executable(Go2_bridge
+  src/bridge_core.cpp
+  src/estop.cpp
+  src/gates.cpp
+  src/go2_frame.cpp
+  src/Go2_bridge.cpp
+  src/go2_node.cpp
+  src/common/motor_crc.cpp
+)
+
+ament_target_dependencies(Go2_bridge
+  unitree_go
+  rclcpp
+  std_msgs
+  std_srvs
+  bridge_interface
+  rosidl_default_runtime
+)
+
+install(
+  TARGETS Go2_bridge
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
 
 add_executable(H1_2_bridge
   src/bridge_core.cpp
@@ -312,6 +337,10 @@ if(BUILD_TESTING)
   # The Booster mode switch without the SDK; tools/check-booster-sdk.py checks the values against it.
   ament_add_gtest(test_booster tests/test_booster.cpp)
   target_include_directories(test_booster PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  # The Go2 frame (header, level flag, stopped slots, CRC against Unitree's SDK) and its stop frames.
+  ament_add_gtest(test_go2 tests/test_go2.cpp src/go2_frame.cpp src/estop.cpp src/common/motor_crc.cpp)
+  target_include_directories(test_go2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/common)
+  ament_target_dependencies(test_go2 rclcpp unitree_go)
   # The /lowcmd CRC against Unitree's SDK; run it in the build type the robot gets.
   ament_add_gtest(test_crc tests/test_crc.cpp src/common/motor_crc_hg.cpp)
   target_include_directories(test_crc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/common)

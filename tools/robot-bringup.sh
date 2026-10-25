@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# Bring a robot's bridge up in the order that works, and optionally arm it. --robot g1 (default) | t1.
+# Bring a robot's bridge up in the order that works, and optionally arm it. --robot g1 (default) | t1 | go2.
 #
 #   G1: release /lowcmd  ->  start G1_bridge  ->  wait for it  ->  arm
 #   T1: start T1_bridge  ->  wait for it  ->  arm (the bridge asks for custom mode on arming)
+#   Go2: stand down + release /lowcmd  ->  start Go2_bridge  ->  wait for it  ->  arm
 #
 # Sources ROS and the workspace's scripts/setup_unitree.sh (T1: setup_booster.sh) itself. The G1's
 # release step needs unitree_sdk2py: $UNITREE_PYTHON, default the lab venv. tools/g1-bringup.sh is
 # this script with --robot g1.
 #
-# ARMING MOVES THE ROBOT. start_control ramps every joint (G1 29, T1 23), legs
+# ARMING MOVES THE ROBOT. start_control ramps every joint (G1 29, T1 23, Go2 12), legs
 # included, to the pose you pass, over `duration` (2 s). It is off unless you
 # ask for it twice: an --arm-* flag and --robot-is-clear.
 #
@@ -33,6 +34,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 
 ROBOT=g1
 PARAMS=""
+RELEASE_ARGS=()   # g1-release-lowcmd.py; the Go2 stands down first
 IFACE="${BRIDGE_IFACE:-enp4s0}"
 IFACE_GIVEN=0
 WS="${BRIDGE_WS:-$HOME/bridge_ws_estop}"
@@ -50,19 +52,19 @@ WAIT_SECONDS=20
 
 usage() {
     cat <<'EOF'
-Usage: tools/robot-bringup.sh [--robot g1|t1] [options]
+Usage: tools/robot-bringup.sh [--robot g1|t1|go2] [options]
 
 G1: release /lowcmd, start G1_bridge, wait for it. T1: start T1_bridge, wait for it.
 Arms only if told to twice.
 
 Options:
-  --robot <g1|t1>        which robot (default g1)
+  --robot <g1|t1|go2>    which robot (default g1)
   --iface <nic>          DDS interface (default $BRIDGE_IFACE or enp4s0)
   --workspace <ws>       colcon workspace that builds this clone (default $BRIDGE_WS or ~/bridge_ws_estop)
-  --params <path>        bridge params file (default bridge/robot_bridge/params/<G1|T1>_config.yaml)
+  --params <path>        bridge params file (default bridge/robot_bridge/params/<G1|T1|Go2>_config.yaml)
   --no-release           G1: skip the /lowcmd release (already released, or a fake robot)
   --arm-from-measured    arm to the pose the robot currently holds
-  --arm-from "<N nums>"  arm to an explicit pose (G1 29, T1 23), length-checked here
+  --arm-from "<N nums>"  arm to an explicit pose (G1 29, T1 23, Go2 12), length-checked here
   --robot-is-clear       required for any --arm-*. Gantry, e-stop, safety gate first
   --stop                 stop every robot bridge (SIGINT, then SIGKILL), start nothing
   --foreground           release, then exec the bridge in this process (log on stdout);
@@ -112,10 +114,13 @@ case "$ROBOT" in
         ESTOP_HINT="R1+R2 damp, L1+R1 hold" ;;
     t1) BIN=T1_bridge; NUM_JOINT=23; READY="T1 type:"; SETUP=setup_booster.sh; DO_RELEASE=0
         ESTOP_HINT="RB+RT damp, LB+RB hold (the gamepad)" ;;
-    *) echo "--robot must be g1 or t1, not '$ROBOT'" >&2; exit 2 ;;
+    go2) BIN=Go2_bridge; NUM_JOINT=12; READY="Go2 type:"; SETUP=setup_unitree.sh
+        RELEASE_ARGS=(--stand-down); ESTOP_HINT="R1+R2 damp, L1+R1 hold" ;;
+    *) echo "--robot must be g1, t1 or go2, not '$ROBOT'" >&2; exit 2 ;;
 esac
-[ -n "$PARAMS" ] || PARAMS="$REPO/bridge/robot_bridge/params/${ROBOT^^}_config.yaml"
-BRIDGES=(G1_bridge T1_bridge)   # one robot per host: any of them counts
+CONFIG_NAME="${ROBOT^^}"; [ "$ROBOT" = go2 ] && CONFIG_NAME=Go2
+[ -n "$PARAMS" ] || PARAMS="$REPO/bridge/robot_bridge/params/${CONFIG_NAME}_config.yaml"
+BRIDGES=(G1_bridge T1_bridge Go2_bridge)   # one robot per host: any of them counts
 
 say()  { printf '== %s\n' "$*"; }
 BRIDGE_LOG=""
@@ -274,7 +279,8 @@ else
         fi
         say "releasing /lowcmd ($UNITREE_PYTHON)"
         # env -u PYTHONPATH: ROS's Python 3.10 paths break another interpreter's imports.
-        run env -u PYTHONPATH "$UNITREE_PYTHON" "$HERE/g1-release-lowcmd.py" --iface "$IFACE"
+        run env -u PYTHONPATH "$UNITREE_PYTHON" "$HERE/g1-release-lowcmd.py" --iface "$IFACE" \
+            ${RELEASE_ARGS+"${RELEASE_ARGS[@]}"}
     elif [ "$ROBOT" = t1 ]; then
         say "no release on the T1: T1_bridge asks for custom mode when it arms"
     else

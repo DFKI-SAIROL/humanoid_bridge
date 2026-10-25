@@ -10,6 +10,7 @@ does it on start when ENV_TYPE == real.
 
     tools/g1-release-lowcmd.py --iface enp4s0
     tools/g1-release-lowcmd.py --check          # report the mode, change nothing
+    tools/g1-release-lowcmd.py --stand-down     # the Go2: sport StandDown before each ReleaseMode
 """
 
 from __future__ import annotations
@@ -42,6 +43,8 @@ def main(argv=None):
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--check", action="store_true",
                         help="report the current mode and exit without releasing")
+    parser.add_argument("--stand-down", action="store_true",
+                        help="the Go2: sport StandDown before each ReleaseMode: it lies down first")
     args = parser.parse_args(argv)
 
     if not args.iface:
@@ -66,7 +69,7 @@ def main(argv=None):
         return 1
 
     if args.iface == "lo":
-        # robot_sim: lo has no MULTICAST flag, so the SDK's multicast="default" finds no peer and every call times out.
+        # robot_sim: lo has no MULTICAST flag; with multicast="default" every SDK call times out.
         import unitree_sdk2py.core.channel as channel
 
         channel.ChannelConfigHasInterface = channel.ChannelConfigHasInterface.replace(
@@ -76,12 +79,22 @@ def main(argv=None):
     switcher = MotionSwitcherClient()
     switcher.SetTimeout(args.timeout)
     switcher.Init()
+    sport = None
+    if args.stand_down:
+        from unitree_sdk2py.go2.sport.sport_client import SportClient
+
+        sport = SportClient()
+        sport.SetTimeout(args.timeout)
+        sport.Init()
 
     print(f"before: {switcher.CheckMode()}")
     if args.check:
         return 0
     # Unitree's own example repeats ReleaseMode until CheckMode shows no mode.
     for _ in range(ATTEMPTS):
+        if sport is not None:
+            # As the ncbf Go2 deploy: a standing Go2 lies down before its sport service lets go.
+            print(f"stand down: {sport.StandDown()}")
         print(f"release: {switcher.ReleaseMode()}")
         time.sleep(1.0)
         code, mode = after = switcher.CheckMode()

@@ -18,6 +18,7 @@
 #   link   /robot_link: a fake robot drops its link and reboots, armed and disarmed
 #   state  /robot_state and /hand_state: every field against fake_g1 and fake_dex3
 #   t1     the real T1_bridge against fake_t1: custom mode, gamepad e-stop, bounded /low_state
+#   go2    the real Go2_bridge against fake_go2: the frame on the wire (CRC), stand-up, remote e-stop
 #   gates  a fresh G1_bridge's target gates (range, speed, torque window, arming seed)
 #          against a fake robot
 #   hands  the real G1_bridge against fake Dex3 hands, five runs: plain, the left hand's
@@ -45,6 +46,7 @@ RUN_ESTOP=0
 RUN_LINK=0
 RUN_STATE=0
 RUN_T1=0
+RUN_GO2=0
 RUN_GATES=0
 RUN_HANDS=0
 RUN_CONFIG=0
@@ -72,6 +74,7 @@ Options:
   --link                robot link (drop, reboot) integration test only
   --state               /robot_state and /hand_state integration test only
   --t1                  T1_bridge integration test only
+  --go2                 Go2_bridge integration test only
   --gates               target-gate integration test only
   --hands               hand-path integration test only
   --config              broken-config refusal test only
@@ -107,6 +110,7 @@ while [ $# -gt 0 ]; do
         --link)  RUN_LINK=1 ;;
         --state) RUN_STATE=1 ;;
         --t1)    RUN_T1=1 ;;
+        --go2)   RUN_GO2=1 ;;
         --gates) RUN_GATES=1 ;;
         --hands) RUN_HANDS=1 ;;
         --config) RUN_CONFIG=1 ;;
@@ -124,8 +128,8 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_LINK$RUN_STATE$RUN_T1$RUN_GATES$RUN_HANDS$RUN_CONFIG$RUN_SIM" = "00000000000" ]; then
-    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_LINK=1; RUN_STATE=1; RUN_T1=1; RUN_GATES=1; RUN_HANDS=1; RUN_CONFIG=1
+if [ "$RUN_UNIT$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_LINK$RUN_STATE$RUN_T1$RUN_GO2$RUN_GATES$RUN_HANDS$RUN_CONFIG$RUN_SIM" = "000000000000" ]; then
+    RUN_UNIT=1; RUN_CPP=1; RUN_WIRE=1; RUN_ESTOP=1; RUN_LINK=1; RUN_STATE=1; RUN_T1=1; RUN_GO2=1; RUN_GATES=1; RUN_HANDS=1; RUN_CONFIG=1
 fi
 
 # 3.0 to 4.0 s after start_hand_control: earlier and the left hand never tracks,
@@ -161,6 +165,7 @@ run_in_docker() {
     [ "$RUN_LINK" = 1 ] && inner+=(--link)
     [ "$RUN_STATE" = 1 ] && inner+=(--state)
     [ "$RUN_T1" = 1 ] && inner+=(--t1)
+    [ "$RUN_GO2" = 1 ] && inner+=(--go2)
     [ "$RUN_GATES" = 1 ] && inner+=(--gates)
     [ "$RUN_HANDS" = 1 ] && inner+=(--hands)
     [ "$RUN_CONFIG" = 1 ] && inner+=(--config)
@@ -310,7 +315,7 @@ stage_cpp() {
         FAILED=1
         return
     fi
-    for name in test_estop test_gates test_crc test_booster; do
+    for name in test_estop test_gates test_crc test_booster test_go2; do
         bin="${prefix%/install/robot_bridge}/build/robot_bridge/$name"
         if [ ! -x "$bin" ]; then
             record cpp SKIP "no $bin; build with BUILD_TESTING on (colcon's default)"
@@ -330,7 +335,7 @@ stage_cpp() {
 }
 
 BUILD_PROBLEM=""
-if [ "$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_LINK$RUN_STATE$RUN_T1$RUN_GATES$RUN_HANDS$RUN_CONFIG" != 000000000 ] && command -v ros2 >/dev/null \
+if [ "$RUN_CPP$RUN_WIRE$RUN_ESTOP$RUN_LINK$RUN_STATE$RUN_T1$RUN_GO2$RUN_GATES$RUN_HANDS$RUN_CONFIG" != 0000000000 ] && command -v ros2 >/dev/null \
    && ros2 pkg prefix robot_bridge >/dev/null 2>&1; then
     BUILD_PROBLEM="$(stale_build)"
 fi
@@ -355,6 +360,9 @@ if [ "$RUN_STATE" = 1 ]; then
 fi
 if [ "$RUN_T1" = 1 ]; then
     stage_integration t1 "$INTEGRATION/run_fake_t1_test.sh"
+fi
+if [ "$RUN_GO2" = 1 ]; then
+    stage_integration go2 "$INTEGRATION/run_fake_go2_test.sh"
 fi
 if [ "$RUN_GATES" = 1 ]; then
     stage_integration gates "$INTEGRATION/run_fake_gates_test.sh"
