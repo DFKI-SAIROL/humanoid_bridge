@@ -148,3 +148,18 @@ def test_ready_position_control_without_the_bridge_raises_like_stop_control():
         client.stop_control(timeout_sec=0.0)
     with pytest.raises(RuntimeError, match="/ready_position_control is not available"):
         client.ready_position_control(timeout_sec=0.0)
+
+
+def test_set_num_dof_resizes_the_body_command():
+    client = RobotCmdClient(_Node(), num_dof=0, control_frequency=50.0)
+    client.set_num_dof(12)  # a Go2 table
+    assert client.num_dof == 12 and client._zeros.shape == (12,)
+    with pytest.raises(ValueError, match="length 12"):
+        client._as_array([0.0] * N, "q")
+
+
+def test_set_num_dof_refuses_defaults_of_another_length():
+    client = RobotCmdClient(_Node(), num_dof=N, control_frequency=50.0, default_kp=[1.0] * N)
+    with pytest.raises(ValueError, match=f"default_kp has length {N}, not 12"):
+        client.set_num_dof(12)
+    assert client.num_dof == N

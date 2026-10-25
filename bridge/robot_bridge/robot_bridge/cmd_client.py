@@ -137,6 +137,15 @@ class RobotCmdClient:
         self.start_hand_control_client = node.create_client(Trigger, "/start_hand_control")
         self.stop_hand_control_client = node.create_client(Trigger, "/stop_hand_control")
 
+    def set_num_dof(self, num_dof):
+        """Resize the body command, e.g. once the motor table is read; defaults must match it."""
+        for name in ("_default_pos", "_default_kp", "_default_kd"):
+            default = getattr(self, name)
+            if default is not None and default.shape != (num_dof,):
+                raise ValueError(f"{name[1:]} has length {default.shape[0]}, not {num_dof}")
+        self.num_dof = num_dof
+        self._zeros = np.zeros(num_dof, dtype=np.float32)
+
     def _as_array(self, value, name):
         if value is None:
             return None
