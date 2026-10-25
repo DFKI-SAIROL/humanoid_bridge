@@ -13,6 +13,7 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>unitree_hg</exec_depend>
   <exec_depend>unitree_api</exec_depend>
+  <exec_depend>booster_interface</exec_depend>   <!-- robot t1 -->
   <exec_depend>bridge_interface</exec_depend>   <!-- robot_sim.arm reads /robot_state -->
   <exec_depend>g1_camera</exec_depend>
   <exec_depend>python3-numpy</exec_depend>

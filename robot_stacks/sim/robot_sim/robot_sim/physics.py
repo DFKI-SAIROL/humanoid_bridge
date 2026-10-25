@@ -147,11 +147,11 @@ class RobotSim:
         mujoco.mj_resetData(self.model, self.data)
         self.data.qpos[2] = 1.0
         mujoco.mj_kinematics(self.model, self.data)
-        lowest = min(
-            self.data.geom_xpos[g][2] - self.model.geom_rbound[g]
-            for g in range(self.model.ngeom)
-            if self.model.geom_bodyid[g] != 0 and self.model.geom_contype[g]
-        )
+        m = self.model
+        body = [g for g in range(m.ngeom) if m.geom_bodyid[g] != 0]
+        # Colliding geoms; a model that collides by <pair> only (ncbf's T1): every robot geom.
+        colliding = [g for g in body if m.geom_contype[g] or m.geom_conaffinity[g]] or body
+        lowest = min(self.data.geom_xpos[g][2] - m.geom_rbound[g] for g in colliding)
         self.anchor = np.array([0.0, 0.0, 1.0 - lowest + self.clearance])
         self.data.qpos[:3] = self.anchor
         self.tau[:] = 0.0

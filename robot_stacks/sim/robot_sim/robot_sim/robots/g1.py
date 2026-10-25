@@ -151,6 +151,10 @@ class Wire:
             cmd.q[i], cmd.dq[i], cmd.kp[i], cmd.kd[i], cmd.tau[i] = m.q, m.dq, m.kp, m.kd, m.tau
         self.node.take_hand_cmd(side, cmd)
 
+    def filter(self, cmd):
+        """Lock held: the G1 follows /lowcmd in every mode."""
+        return cmd
+
     def set_remote(self, connected):
         unitree.set_remote(self.state.wireless_remote, connected)
 

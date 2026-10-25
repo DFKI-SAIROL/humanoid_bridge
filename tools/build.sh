@@ -103,8 +103,11 @@ done
 # --- build -----------------------------------------------------------------
 echo "workspace: $WORKSPACE"
 cd "$WORKSPACE"
-# ON, not the default: a build dir from before keeps a cached OFF. A later --cmake-args replaces this.
-colcon build --cmake-args -DBUILD_BOOSTER_T1=ON "$@"
+# ON, not the default: a build dir from before keeps a cached OFF. Last: --cmake-args takes
+# what follows it. Your own --cmake-args (the X2 build) replaces it.
+T1_ARGS=(--cmake-args -DBUILD_BOOSTER_T1=ON)
+for arg in "$@"; do [ "$arg" = --cmake-args ] && T1_ARGS=(); done
+colcon build "$@" ${T1_ARGS+"${T1_ARGS[@]}"}
 
 echo
 echo "done. Source it, then test:"

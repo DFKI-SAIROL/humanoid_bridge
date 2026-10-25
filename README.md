@@ -114,6 +114,7 @@ tools/g1-bringup.sh --dry-run                        # print the plan, run nothi
 tools/g1-bringup.sh --iface enp4s0                   # release + bridge, no arming
 tools/g1-bringup.sh --arm-from-measured --robot-is-clear
 tools/g1-bringup.sh --stop                           # every G1_bridge; SIGKILL if SIGINT hangs
+tools/robot-bringup.sh --robot t1                    # the T1: T1_bridge, no release; custom mode on arming
 ```
 
 It sources ROS and `setup_unitree.sh` itself. The release runs on
