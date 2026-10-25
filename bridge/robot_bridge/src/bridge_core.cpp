@@ -147,7 +147,7 @@ namespace sairol_bridge
         {
             return true;
         }
-        why = "robot restarted: restart G1_bridge to release /lowcmd";
+        why = "robot restarted: restart the bridge to release /lowcmd";
         return false;
     }
 

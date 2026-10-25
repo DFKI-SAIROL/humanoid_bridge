@@ -1,7 +1,8 @@
 # Unitree Go2: 12 motors in unitree_go's 20-slot frame (go2_frame.hpp).
 # remote control, read from /lowstate.wireless_remote (docs/estop.md), as on the G1:
 # e-stop damp: R1 + R2    e-stop hold: L1 + R1    (set under estop:)
-# Ranges: unitree go2 URDF (= the ncbf model). kp 20 / kd 0.5: the ncbf deploy's gains.
+# Ranges: unitree go2 URDF (= the ncbf model). kp 70 / kd 3: the ncbf deploy's stand gains
+# (Ready, Arm, the e-stop hold); its policy sends its own (kp 20 / kd 0.5) on /robot_cmd.
 # Ready: the stand-up ramp from lying to ready_q over `duration`; a limp Go2 lies on the floor.
 # Release before the bridge: tools/robot-bringup.sh --robot go2 (sport StandDown, then ReleaseMode).
 
@@ -53,8 +54,8 @@ robot_bridge:
       q_max: 1.0472
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     FR_thigh:
@@ -63,8 +64,8 @@ robot_bridge:
       q_max: 3.4907
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     FR_calf:
@@ -73,8 +74,8 @@ robot_bridge:
       q_max: -0.83776
       dq_limit: 15.7
       tau_limit: 45.43
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     FL_hip:
@@ -83,8 +84,8 @@ robot_bridge:
       q_max: 1.0472
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     FL_thigh:
@@ -93,8 +94,8 @@ robot_bridge:
       q_max: 3.4907
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     FL_calf:
@@ -103,8 +104,8 @@ robot_bridge:
       q_max: -0.83776
       dq_limit: 15.7
       tau_limit: 45.43
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     RR_hip:
@@ -113,8 +114,8 @@ robot_bridge:
       q_max: 1.0472
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     RR_thigh:
@@ -123,8 +124,8 @@ robot_bridge:
       q_max: 4.5379
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     RR_calf:
@@ -133,8 +134,8 @@ robot_bridge:
       q_max: -0.83776
       dq_limit: 15.7
       tau_limit: 45.43
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     RL_hip:
@@ -143,8 +144,8 @@ robot_bridge:
       q_max: 1.0472
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     RL_thigh:
@@ -153,8 +154,8 @@ robot_bridge:
       q_max: 4.5379
       dq_limit: 30.1
       tau_limit: 23.7
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false
     RL_calf:
@@ -163,7 +164,7 @@ robot_bridge:
       q_max: -0.83776
       dq_limit: 15.7
       tau_limit: 45.43
-      kp: 20.0
-      kd: 0.5
+      kp: 70.0
+      kd: 3.0
       if_strong_joint: true
       if_parallel_joint: false

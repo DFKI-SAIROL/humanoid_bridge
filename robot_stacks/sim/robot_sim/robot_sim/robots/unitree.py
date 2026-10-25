@@ -1,4 +1,4 @@
-"""What the Unitree robots (G1, Go2) share in sim: the remote's bytes, the motion switcher's ROS side."""
+"""What the G1 and the Go2 share in sim: the remote's bytes, the motion switcher's ROS side."""
 
 from robot_sim.motion import BOOT_MODE, MotionSwitcher
 
@@ -29,14 +29,14 @@ def set_keys(wireless_remote, mask):
 
 
 class MotionService:
-    """The fake motion service: answers /api/motion_switcher/*; while a mode holds, it owns the topic.
+    """The fake motion service: answers /api/motion_switcher/*; a mode in hold owns the topic.
 
     `frame`: the LowCmd it sends, every motor mode 0. Lock held by the caller for `boot` and `send`.
     """
 
     PERIOD_S = 0.01  # its /lowcmd, 100 Hz
 
-    def __init__(self, node, lowcmd_type, topic, frame, lock):
+    def __init__(self, node, lowcmd_type, topic, frame, lock, boot_mode=BOOT_MODE):
         from unitree_api.msg import Request, Response
 
         self.node = node
@@ -44,6 +44,7 @@ class MotionService:
         self.topic = topic
         self.frame = frame
         self.lock = lock
+        self.boot_mode = boot_mode  # the mode a booted robot holds the topic in (G1 ai, Go2 normal)
         self.switcher = MotionSwitcher()
         self.publisher = None  # guarded by lock: the physics thread publishes
         self.due = 0.0
@@ -60,7 +61,8 @@ class MotionService:
         response.header.status.code = code
         response.data = data
         self.response.publish(response)
-        self.node.get_logger().info(f"motion switcher: api {msg.header.identity.api_id} -> {code} {data}")
+        api = msg.header.identity.api_id
+        self.node.get_logger().info(f"motion switcher: api {api} -> {code} {data}")
         self.sync()
 
     def sync(self):
@@ -68,7 +70,8 @@ class MotionService:
         with self.lock:
             if self.switcher.mode and self.publisher is None:
                 self.publisher = self.node.create_publisher(self.lowcmd_type, self.topic, 10)
-                self.node.get_logger().warn(f"motion service '{self.switcher.mode}' holds {self.topic}")
+                mode = self.switcher.mode
+                self.node.get_logger().warn(f"motion service '{mode}' holds {self.topic}")
             elif not self.switcher.mode and self.publisher is not None:
                 self.node.destroy_publisher(self.publisher)
                 self.publisher = None
@@ -76,7 +79,7 @@ class MotionService:
 
     def boot(self):
         """A rebooted robot: its motion service holds the topic again."""
-        self.switcher.mode = BOOT_MODE
+        self.switcher.mode = self.boot_mode
 
     def send(self, now):
         """Its frame while it holds the topic, at PERIOD_S."""

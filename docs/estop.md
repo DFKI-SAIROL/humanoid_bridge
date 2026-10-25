@@ -57,7 +57,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 
 - `RESTARTED` while `ARMED`, `STOPPED` or latched: latches `damp robot_restart` (silent by then: the gap went past 1.2 s).
 - `RESTARTED` while `DISARMED`: nothing latches.
-- After `RESTARTED` every arming service, Ready/Zero and `/estop_reset` are refused: `robot restarted: restart G1_bridge to release /lowcmd`. `g1-bringup.sh` releases the motion service at start.
+- After `RESTARTED` every arming service, Ready/Zero and `/estop_reset` are refused: `robot restarted: restart the bridge to release /lowcmd`. `robot-bringup.sh` releases the motion service at start.
 - The bridge never releases `/lowcmd` itself (roadmap: motion-service takeover).
 - A tick drop without a 0.2 s gap is ignored: a stray sample must not latch a running robot.
 - Not checked on the G1: that its tick restarts at boot (roadmap).

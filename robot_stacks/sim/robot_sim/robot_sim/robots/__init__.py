@@ -2,7 +2,7 @@
 
 import importlib
 
-NAMES = ("g1", "t1")
+NAMES = ("g1", "t1", "go2")
 
 
 def load(name):

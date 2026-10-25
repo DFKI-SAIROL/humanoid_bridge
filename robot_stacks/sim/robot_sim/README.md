@@ -6,6 +6,7 @@ MuJoCo robot in place of the real one, on the robot's own topics, so its bridge 
 |---|---|---|
 | `g1` | `robot_sim/robots/g1.py` | `unitree_hg` `/lowstate`, `/lowcmd`, `/dex3/*`; motion switcher (`unitree_api`) |
 | `t1` | `robot_sim/robots/t1.py` | `booster_interface` `/low_state`, `/joint_ctrl` (custom mode only, else damping), `booster_rpc_service` modes, gamepad `/remote_controller_state` 50 Hz; camera `head_rgb` (booster_assets' RealSense pose); `$T1_MJCF` or `--mjcf` (`fetch_assets.sh --model t1_ncbf` or `t1_booster`) |
+| `go2` | `robot_sim/robots/go2.py` | `unitree_go` `/lowstate`, `/lowcmd` (a wrong CRC is dropped), sport `/api/sport/*` (answers ok), motion switcher (`normal` after a reboot); starts lying, no gantry; camera `ego_camera`; `$GO2_MJCF` or `--mjcf` (`fetch_assets.sh --model go2_ncbf` or `go2_menagerie`) |
 
 A new robot: `robot_sim/robots/<name>.py` with `SPEC` (`physics.RobotSpec`) and `Wire` (its topics), and its name in `robots.NAMES`.
 

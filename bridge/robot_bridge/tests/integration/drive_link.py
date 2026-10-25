@@ -18,7 +18,7 @@ from unitree_hg.msg import LowCmd
 from robot_bridge.cmd_client import RobotCmdClient
 
 RAMP_SECONDS = 2.5  # `duration` 2.0 plus margin
-RESTARTED_WHY = "robot restarted: restart G1_bridge to release /lowcmd"
+RESTARTED_WHY = "robot restarted: restart the bridge to release /lowcmd"
 
 
 class Driver:

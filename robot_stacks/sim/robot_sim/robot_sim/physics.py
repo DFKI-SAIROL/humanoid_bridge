@@ -24,6 +24,8 @@ class RobotSpec:
     prepare: Callable  # (MjSpec) -> None: armature, friction, camera mount, before compile
     hand_joints: dict = dataclasses.field(default_factory=dict)  # side -> names; empty: no hands
     hand_effort: float = 0.0  # Nm, for a finger the MJCF leaves unlimited
+    start_q: tuple = ()  # the joints at a reset, bridge order; (): all 0
+    gantry: bool = True  # a gantry holds it at start and after a reset (False: the Go2 lies)
 
 
 def build_spec(robot, mjcf):
@@ -52,7 +54,8 @@ def build_spec(robot, mjcf):
     sensor = mujoco.mjtSensor
     kinds = (sensor.mjSENS_FRAMEQUAT, sensor.mjSENS_GYRO, sensor.mjSENS_ACCELEROMETER)
     for name, kind in zip(IMU_SENSORS, kinds, strict=True):
-        spec.add_sensor(name=name, type=kind, objtype=mujoco.mjtObj.mjOBJ_SITE, objname=robot.imu_site)
+        site = mujoco.mjtObj.mjOBJ_SITE
+        spec.add_sensor(name=name, type=kind, objtype=site, objname=robot.imu_site)
     return spec
 
 
@@ -91,7 +94,7 @@ class HandCommand:
 class RobotSim:
     """Steps the robot with the motor PD law; a gantry holds the base while it is on.
 
-    `hands`: the MJCF has every joint of robot.hand_joints; `step` then takes a HandCommand per side.
+    `hands`: the MJCF has every joint of robot.hand_joints; `step` then takes a HandCommand a side.
     """
 
     GANTRY_KP = (4000.0, 400.0)  # N/m, Nm/rad
@@ -143,8 +146,10 @@ class RobotSim:
         return HandCommand(len(self.robot.hand_joints[side]))
 
     def reset(self):
-        """Joints at zero, hanging with the feet `clearance` above the floor."""
+        """Joints at start_q (else 0), the lowest point `clearance` above the floor."""
         mujoco.mj_resetData(self.model, self.data)
+        if self.robot.start_q:
+            self.data.qpos[self.qadr] = self.robot.start_q
         self.data.qpos[2] = 1.0
         mujoco.mj_kinematics(self.model, self.data)
         m = self.model
@@ -170,7 +175,8 @@ class RobotSim:
         d.qfrc_applied[self.vadr] = self.tau
         for side, hand in (hand_cmds or {}).items() if self.hands else ():
             qadr, vadr, limit = self.hand_qadr[side], self.hand_vadr[side], self.hand_effort[side]
-            torque = hand.tau + hand.kp * (hand.q - d.qpos[qadr]) + hand.kd * (hand.dq - d.qvel[vadr])
+            q, dq = d.qpos[qadr], d.qvel[vadr]
+            torque = hand.tau + hand.kp * (hand.q - q) + hand.kd * (hand.dq - dq)
             self.hand_tau[side] = np.clip(torque, -limit, limit)
             d.qfrc_applied[vadr] = self.hand_tau[side]
         d.xfrc_applied[self.base] = self._gantry_wrench() if self.gantry else 0.0

@@ -1,10 +1,10 @@
-"""MuJoCo robot in real time on its own topics (robots/<name>.py); passive 0.4 s after the last command.
+"""MuJoCo robot in real time on its own topics (robots/<name>.py); passive 0.4 s after a command.
 
 Inputs: /robot_sim/gantry (Bool, hold the base), /robot_sim/remote (Bool, remote connected),
 /robot_sim/buttons (String, held buttons as `R1+R2`, "" releases), /robot_sim/reset (Empty, back on
 the gantry), /robot_sim/link (Float32 s: no state out, no command in; sim time runs on),
 /robot_sim/reboot (Float32 s: as link, then a reset, tick from 0, and the robot's motion service).
-Parameters (read-only): robot (g1, t1), mjcf, the absolute path of the loaded model.
+Parameters (read-only): robot (g1, t1, go2), mjcf, the absolute path of the loaded model.
 """
 
 import argparse
@@ -29,7 +29,7 @@ from robot_sim.physics import RobotSim
 
 LAG_WARN_S = 0.05  # the bridge damps on state older than 0.2 s
 VIEWER_PERIOD_S = 0.02
-PASSIVE_AFTER_S = 0.4  # the G1's motors go passive this long after /lowcmd stops (docs/estop.md, G0)
+PASSIVE_AFTER_S = 0.4  # the G1's motors go passive this long after /lowcmd stops (estop.md, G0)
 
 
 class RobotSimNode(Node):
@@ -107,9 +107,9 @@ class RobotSimNode(Node):
     # --- physics thread ----------------------------------------------------------
 
     def _restart(self):
-        """self.lock held: back on the gantry, the sim clock from 0."""
+        """self.lock held: the start pose (on the gantry, or the Go2 lying), the sim clock from 0."""
         self.sim.reset()
-        self.sim.gantry = True
+        self.sim.gantry = self.sim.robot.gantry
         self.hand_due = 0.0
 
     def _loop(self):
@@ -223,8 +223,9 @@ def main(argv=None):
 
     robot = robots.load(args.robot)
     mjcf = args.mjcf or str(robot.SPEC.default_mjcf)
-    sim = RobotSim(robot.SPEC, mjcf, clearance=0.0 if args.no_gantry else args.clearance)
-    sim.gantry = not args.no_gantry
+    gantry = robot.SPEC.gantry and not args.no_gantry
+    sim = RobotSim(robot.SPEC, mjcf, clearance=args.clearance if gantry else 0.0)
+    sim.gantry = gantry
     node = RobotSimNode(sim, args.robot, mjcf, robot.Wire)
     node.get_logger().info(
         f"{args.robot} {mjcf}: {sim.model.nq} qpos, dt {sim.dt * 1000:.0f} ms, "
