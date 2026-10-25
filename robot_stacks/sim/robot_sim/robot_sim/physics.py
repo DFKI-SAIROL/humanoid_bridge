@@ -40,7 +40,8 @@ def build_spec(robot, mjcf):
     if not (mjcf.parent / spec.meshdir).is_dir() and (mjcf.parent / "meshes").is_dir():
         spec.meshdir = "meshes"  # fetch_assets.sh renames mjlab's assets/ to meshes/
 
-    if "floor" not in {geom.name for geom in spec.geoms}:  # scene MJCFs bring their own
+    # A scene MJCF brings its own plane (Booster's T1: `ground`): a second one z-fights.
+    if not any(geom.type == mujoco.mjtGeom.mjGEOM_PLANE for geom in spec.geoms):
         spec.add_texture(name="floor", type=mujoco.mjtTexture.mjTEXTURE_2D,
                          builtin=mujoco.mjtBuiltin.mjBUILTIN_CHECKER, width=300, height=300,
                          rgb1=[0.2, 0.3, 0.4], rgb2=[0.1, 0.2, 0.3])  # fmt: skip

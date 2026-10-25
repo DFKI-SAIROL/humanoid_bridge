@@ -33,6 +33,12 @@ def test_motor_order_is_the_bridge_order(sim):
     assert names == list(t1.JOINT_NAMES) and sim.num_joint == 23
 
 
+def test_one_floor_plane(sim):
+    """Booster's scene has its own `ground`: a second plane at z 0 z-fights in the camera."""
+    planes = [i for i in range(sim.model.ngeom) if sim.model.geom_type[i] == mujoco.mjtGeom.mjGEOM_PLANE]
+    assert len(planes) == 1
+
+
 def test_the_head_camera_looks_forward_and_down(sim):
     mujoco.mj_forward(sim.model, sim.data)
     view = -sim.data.cam_xmat[sim.model.camera(t1.CAMERA).id].reshape(3, 3)[:, 2]  # along -z
