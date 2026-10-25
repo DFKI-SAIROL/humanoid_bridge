@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Blocks pushing directly to the default branch, so every change goes through
+# a pull request. Useful where the hosting plan offers no server-side branch
+# protection. Real friction, not a guarantee: --no-verify skips hooks, and a
+# clone only enforces this after a one-time
+#   git config core.hooksPath .githooks
+# because .git/hooks is never tracked — record that step in the repo's
+# contributor instructions.
+#
+# Protocol: git feeds one line per ref on stdin:
+#   <local ref> <local sha> <remote ref> <remote sha>
+set -eu
+
+# main and master are always protected; additionally protect this repo's real
+# default branch, resolved at push time from the remote's HEAD. That is what
+# lets the hook guard a repo whose default is 'trunk' or 'develop' without
+# anyone editing this file — a hardcoded 'main' silently protected nothing
+# there. If origin/HEAD is not set (no remote yet), the fallback pair stands.
+protected_refs="refs/heads/main refs/heads/master"
+default_branch="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+default_branch="${default_branch#origin/}"
+if [ -n "$default_branch" ]; then
+  protected_refs="refs/heads/$default_branch $protected_refs"
+fi
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  for ref in $protected_refs; do
+    if [[ "$remote_ref" == "$ref" ]]; then
+      echo "pre-push: direct push to '$remote_ref' is blocked — open a PR instead." >&2
+      exit 1
+    fi
+  done
+done
+
+exit 0

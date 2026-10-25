@@ -82,6 +82,7 @@ raw CycloneDDS, so every ROS 2 node has to match it.
 Clone into a colcon workspace's `src/`, then:
 
 ```bash
+git config core.hooksPath .githooks   # once per clone: pre-push refuses direct pushes to main
 source /opt/ros/humble/setup.bash
 tools/install-build-deps.sh     # first time on a fresh host
 tools/build.sh                  # G1, H1, H1_2
