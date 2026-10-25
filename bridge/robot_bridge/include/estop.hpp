@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sairol_bridge::estop
@@ -34,6 +35,31 @@ namespace sairol_bridge::estop
         KEY_A = 1 << 8, KEY_B = 1 << 9, KEY_X = 1 << 10, KEY_Y = 1 << 11,
         KEY_UP = 1 << 12, KEY_RIGHT = 1 << 13, KEY_DOWN = 1 << 14, KEY_LEFT = 1 << 15
     };
+
+    // The T1's gamepad (booster_interface/RemoteControllerState), on bits of its own.
+    enum T1Key : uint16_t
+    {
+        T1_A = 1 << 0, T1_B = 1 << 1, T1_X = 1 << 2, T1_Y = 1 << 3,
+        T1_LB = 1 << 4, T1_RB = 1 << 5, T1_LT = 1 << 6, T1_RT = 1 << 7,
+        T1_BACK = 1 << 8, T1_START = 1 << 9, T1_LS = 1 << 10, T1_RS = 1 << 11,
+        T1_UP = 1 << 12, T1_DOWN = 1 << 13, T1_LEFT = 1 << 14, T1_RIGHT = 1 << 15
+    };
+
+    // One remote's key names (as the config's combos spell them) and bits.
+    using KeyTable = std::vector<std::pair<std::string, uint16_t>>;
+    const KeyTable &unitreeKeys();   // Key: G1, H1, Go2
+    const KeyTable &t1Keys();        // T1Key
+    // estop.remote_keys: "unitree" | "t1" -> its table; nullptr for another name.
+    const KeyTable *keyTable(const std::string &name);
+
+    // The T1 gamepad's buttons; the hat as four directions.
+    struct T1Pad
+    {
+        bool a{false}, b{false}, x{false}, y{false}, lb{false}, rb{false}, lt{false}, rt{false};
+        bool back{false}, start{false}, ls{false}, rs{false};
+        bool up{false}, down{false}, left{false}, right{false};
+    };
+    uint16_t t1KeyMask(const T1Pad &pad);
 
     // /lowstate older than this is a state_loss fault.
     constexpr double STATE_LOSS_S = 0.2;
@@ -66,14 +92,14 @@ namespace sairol_bridge::estop
     const char *name(Cause cause);
     bool parseMode(const std::string &text, Mode &mode);
     // Key names as in the config ("L1", "R1", "UP", ...). 0 on an unknown or empty list.
-    uint16_t parseCombo(const std::vector<std::string> &keys);
+    uint16_t parseCombo(const std::vector<std::string> &keys, const KeyTable &table = unitreeKeys());
 
     // LowState.wireless_remote: bytes 2-3, little-endian. 0 if the buffer is short.
     uint16_t remoteKeys(const uint8_t *raw, size_t size);
     // Bytes 0-1 are 0x55 0x51 while a remote is connected; all 40 are 0 without one.
     bool remoteHeader(const uint8_t *raw, size_t size);
     // The names of the keys held in `keys`, as in the config, in bit order.
-    std::vector<std::string> keyNames(uint16_t keys);
+    std::vector<std::string> keyNames(uint16_t keys, const KeyTable &table = unitreeKeys());
     struct Sticks
     {
         float lx{0}, ly{0}, rx{0}, ry{0};

@@ -69,7 +69,7 @@ Details and done-when per item: `PROJECT_ROADMAP.md`.
 | Python | 3.10 on the workstation, 3.8 on-board |
 | Not pulled by rosdep | `rosidl_generator_dds_idl`, `rmw_cyclonedds_cpp`, and the Python deps (`numpy`, `pyzmq`, `msgpack`, `msgpack-numpy`, OpenCV, `pytest`, `ruff`). `tools/install-build-deps.sh` installs the lot |
 | G1 / H1 | [unitree_sdk2_python](https://github.com/unitreerobotics/unitree_sdk2_python) |
-| T1 | [booster_robotics_sdk](https://github.com/DFKI-SAIROL/booster_robotics_sdk), built per its README. Only needed with `--t1` |
+| T1 | nothing more: `include/booster_mode.hpp` stands in for the Booster SDK (`tools/check-booster-sdk.py <sdk clone>` checks it) |
 
 `rosidl_generator_dds_idl` is required by the vendored `unitree_*` packages and
 declared in none of their `package.xml`, so nothing installs it for you.
@@ -85,8 +85,7 @@ Clone into a colcon workspace's `src/`, then:
 git config core.hooksPath .githooks   # once per clone: pre-push refuses direct pushes to main
 source /opt/ros/humble/setup.bash
 tools/install-build-deps.sh     # first time on a fresh host
-tools/build.sh                  # G1, H1, H1_2
-tools/build.sh --t1             # also the Booster T1
+tools/build.sh                  # G1, H1, H1_2, T1
 # AgiBot X2, into install_x2/ for scripts/setup_x2.sh:
 tools/build.sh -- --build-base build_x2 --install-base install_x2 \
     --cmake-args -DBUILD_BOOSTER_T1=OFF -DBUILD_AGIBOT_X2=ON

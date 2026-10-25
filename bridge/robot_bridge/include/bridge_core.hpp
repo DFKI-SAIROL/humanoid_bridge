@@ -178,6 +178,7 @@ namespace sairol_bridge
         // E-stop. latch_ and holdQ_ are guarded by mutex_; the atomics mirror
         // latch_ for readers that must not lock.
         estop::Config estopConfig_;
+        const estop::KeyTable *keyTable_{&estop::unitreeKeys()};   // estop.remote_keys
         estop::SafetyLatch latch_;
         std::vector<float_t> holdQ_;
         std::atomic<bool> latched_{false};

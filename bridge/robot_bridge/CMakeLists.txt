@@ -198,9 +198,8 @@ install(
 
 # ==============================================================Booster T1===================================================================================
 
-# OFF by default: T1 needs the Booster SDK headers at BOOSTER_INCLUDE_PATH,
-# which only a T1 host has. tools/build.sh --t1 turns it on after checking.
-option(BUILD_BOOSTER_T1 "Build Booster T1 bridge" OFF)
+# booster_mode.hpp stands in for the Booster SDK: T1_bridge builds on any host.
+option(BUILD_BOOSTER_T1 "Build Booster T1 bridge" ON)
 
 if(BUILD_BOOSTER_T1)
   find_package(booster_interface REQUIRED)
@@ -209,34 +208,22 @@ if(BUILD_BOOSTER_T1)
     src/t1_node.cpp
     src/bridge_core.cpp
     src/estop.cpp
+    src/gates.cpp
     src/T1_bridge.cpp
   )
 
-  # Override with -DBOOSTER_INCLUDE_PATH=<dir> when the SDK is elsewhere.
-  if(NOT BOOSTER_INCLUDE_PATH)
-    set(BOOSTER_INCLUDE_PATH "$ENV{HOME}/library/booster/include")
-  endif()
-  if(NOT EXISTS "${BOOSTER_INCLUDE_PATH}")
-    message(FATAL_ERROR
-      "BUILD_BOOSTER_T1=ON but no Booster SDK headers at ${BOOSTER_INCLUDE_PATH}. "
-      "Build them per https://github.com/DFKI-SAIROL/booster_robotics_sdk, pass "
-      "-DBOOSTER_INCLUDE_PATH=<dir>, or build with -DBUILD_BOOSTER_T1=OFF.")
-  endif()
-
   target_include_directories(T1_bridge
     PUBLIC
-      ${BOOSTER_INCLUDE_PATH}
       ${CMAKE_CURRENT_SOURCE_DIR}/include
   )
 
   ament_target_dependencies(T1_bridge
     rclcpp
     std_msgs
-    sensor_msgs
     std_srvs
     bridge_interface
     booster_interface
-    rosidl_default_runtime 
+    rosidl_default_runtime
   )
 
   install(
@@ -322,6 +309,9 @@ if(BUILD_TESTING)
   target_include_directories(test_estop PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   ament_add_gtest(test_gates tests/test_gates.cpp src/gates.cpp)
   target_include_directories(test_gates PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  # The Booster mode switch without the SDK; tools/check-booster-sdk.py checks the values against it.
+  ament_add_gtest(test_booster tests/test_booster.cpp)
+  target_include_directories(test_booster PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
   # The /lowcmd CRC against Unitree's SDK; run it in the build type the robot gets.
   ament_add_gtest(test_crc tests/test_crc.cpp src/common/motor_crc_hg.cpp)
   target_include_directories(test_crc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/include/common)

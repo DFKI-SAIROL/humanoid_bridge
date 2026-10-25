@@ -1,8 +1,7 @@
-# remote control, robot_client.py only (the bridge's key subscription is commented out):
-# start control: LT + RT + START
-# stop control: BACK
-# ready position: LB, zero position: RB (not while the client is in control)
-# LT + BACK: the client stops its own commands
+# remote control: the T1 gamepad on /remote_controller_state (docs/estop.md):
+# e-stop damp: RB + RT    e-stop hold: LB + RB    (set under estop:)
+# arming needs the gamepad (a message within 0.5 s; estop.require_remote)
+# robot_client.py (the examples' client) reads its own keys: LT + START, LT + A, BACK
 
 
 robot_bridge:
@@ -14,6 +13,20 @@ robot_bridge:
     num_joint: 23
     torque_control: false
     imu_rpy_threshold: 1.0 #radians
+
+    # docs/estop.md. Operator e-stops have a fixed mode; these set the rest.
+    estop:
+      damp_kd: 5.0                      # float: an integer here fails the load
+      remote_keys: t1                   # the T1 gamepad's names
+      remote_combo_damp: ["RB", "RT"]   # one hand: the right shoulder buttons
+      remote_combo_hold: ["LB", "RB"]
+      require_remote: true
+      mode:                             # damp | hold
+        stop: hold
+        imu: damp
+        state_loss: damp
+        state_invalid: damp
+        cmd_timeout: hold
 
     upper_limbs_kp_min: 0.0
     upper_limbs_kp_max: 1000.0

@@ -46,7 +46,7 @@ Closes roadmap `feat/g1-finish-control-release`.
 
 ## Robot link — `/robot_link`
 
-`std_msgs/String`, transient-local, on change. G1 only. Tracks `/lowstate` gaps and `LowState.tick`, armed or not.
+`std_msgs/String`, transient-local, on change. G1 and T1. Tracks state gaps and `LowState.tick` (T1: no tick, so no RESTARTED), armed or not.
 
 | Value | When | Cleared by |
 |---|---|---|
@@ -154,8 +154,9 @@ estop:
 - `G1Bridge`: implements `publishStopCommand_`; remote parsing in `lowStateHandler_`, which now copies state under `mutex_`; `finishControl_` stays a log line.
 - `include/joint.hpp`: `Joint` moved out of `bridge_core.hpp` so the pure code needs no ROS.
 - `RobotCmdClient`: `estop_damp()`, `estop_hold()`, `estop_reset()`.
-- H1, H1_2, T1: same latch and services, no stop frame (silent as before). Their own remote and IMU stop paths skip the latch, so `/bridge_state` and the latch are valid on the G1 only (author, 2026-10-19).
-- Out of scope: the gate audit (task 2), H1/H1_2/T1 stop frames.
+- T1 (2026-10-25): as the G1: stop frames, gates, `/robot_link`, the gamepad on `/remote_controller_state` (`estop.remote_keys: t1`, damp RB+RT, hold LB+RB); custom mode on arming, damping mode at shutdown (`booster_mode.hpp`). A gamepad message within `REMOTE_TIMEOUT_S` counts as connected.
+- H1, H1_2: same latch and services, no stop frame (silent as before). Their own remote and IMU stop paths skip the latch, so `/bridge_state` and the latch are valid on the G1 and T1 only (author, 2026-10-19).
+- Out of scope: the gate audit (task 2), H1/H1_2 stop frames.
 
 ## Tests
 

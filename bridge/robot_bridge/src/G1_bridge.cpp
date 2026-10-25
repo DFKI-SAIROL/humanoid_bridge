@@ -243,7 +243,7 @@ void sairol_bridge::G1Bridge::lowStateHandler_(unitree_hg::msg::LowState::Shared
     }
 
     state.remote.connected = header;
-    state.remote.pressed = estop::keyNames(keys);
+    state.remote.pressed = estop::keyNames(keys, *keyTable_);
     const estop::Sticks sticks = estop::remoteSticks(raw, raw_size);
     state.remote.lx = sticks.lx;
     state.remote.ly = sticks.ly;

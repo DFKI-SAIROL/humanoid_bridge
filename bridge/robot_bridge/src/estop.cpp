@@ -16,14 +16,58 @@ namespace sairol_bridge::estop
         {
             return (current == Mode::Damp || wanted == Mode::Damp) ? Mode::Damp : Mode::Hold;
         }
+    } // namespace
 
-        const std::pair<const char *, uint16_t> KEY_NAMES[] = {
+    const KeyTable &unitreeKeys()
+    {
+        static const KeyTable table = {
             {"R1", KEY_R1}, {"L1", KEY_L1}, {"START", KEY_START}, {"SELECT", KEY_SELECT},
             {"R2", KEY_R2}, {"L2", KEY_L2}, {"F1", KEY_F1}, {"F2", KEY_F2},
             {"A", KEY_A}, {"B", KEY_B}, {"X", KEY_X}, {"Y", KEY_Y},
             {"UP", KEY_UP}, {"RIGHT", KEY_RIGHT}, {"DOWN", KEY_DOWN}, {"LEFT", KEY_LEFT},
         };
-    } // namespace
+        return table;
+    }
+
+    const KeyTable &t1Keys()
+    {
+        static const KeyTable table = {
+            {"A", T1_A}, {"B", T1_B}, {"X", T1_X}, {"Y", T1_Y},
+            {"LB", T1_LB}, {"RB", T1_RB}, {"LT", T1_LT}, {"RT", T1_RT},
+            {"BACK", T1_BACK}, {"START", T1_START}, {"LS", T1_LS}, {"RS", T1_RS},
+            {"UP", T1_UP}, {"DOWN", T1_DOWN}, {"LEFT", T1_LEFT}, {"RIGHT", T1_RIGHT},
+        };
+        return table;
+    }
+
+    const KeyTable *keyTable(const std::string &name)
+    {
+        if (name == "unitree")
+        {
+            return &unitreeKeys();
+        }
+        if (name == "t1")
+        {
+            return &t1Keys();
+        }
+        return nullptr;
+    }
+
+    uint16_t t1KeyMask(const T1Pad &pad)
+    {
+        const std::pair<bool, uint16_t> keys[] = {
+            {pad.a, T1_A}, {pad.b, T1_B}, {pad.x, T1_X}, {pad.y, T1_Y},
+            {pad.lb, T1_LB}, {pad.rb, T1_RB}, {pad.lt, T1_LT}, {pad.rt, T1_RT},
+            {pad.back, T1_BACK}, {pad.start, T1_START}, {pad.ls, T1_LS}, {pad.rs, T1_RS},
+            {pad.up, T1_UP}, {pad.down, T1_DOWN}, {pad.left, T1_LEFT}, {pad.right, T1_RIGHT},
+        };
+        uint16_t mask = 0;
+        for (const auto &[held, bit] : keys)
+        {
+            mask |= held ? bit : 0;
+        }
+        return mask;
+    }
 
     bool isOperator(Cause cause)
     {
@@ -90,16 +134,16 @@ namespace sairol_bridge::estop
         return false;
     }
 
-    uint16_t parseCombo(const std::vector<std::string> &keys)
+    uint16_t parseCombo(const std::vector<std::string> &keys, const KeyTable &table)
     {
         uint16_t combo = 0;
         for (auto key : keys)
         {
             std::transform(key.begin(), key.end(), key.begin(),
                            [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-            const auto found = std::find_if(std::begin(KEY_NAMES), std::end(KEY_NAMES),
+            const auto found = std::find_if(table.begin(), table.end(),
                                             [&](const auto &entry) { return key == entry.first; });
-            if (found == std::end(KEY_NAMES))
+            if (found == table.end())
             {
                 return 0;
             }
@@ -122,7 +166,7 @@ namespace sairol_bridge::estop
         return raw != nullptr && size >= 2 && raw[0] == 0x55 && raw[1] == 0x51;
     }
 
-    std::vector<std::string> keyNames(uint16_t keys)
+    std::vector<std::string> keyNames(uint16_t keys, const KeyTable &table)
     {
         std::vector<std::string> names;
         for (int bit = 0; bit < 16; ++bit)
@@ -132,9 +176,12 @@ namespace sairol_bridge::estop
             {
                 continue;
             }
-            const auto found = std::find_if(std::begin(KEY_NAMES), std::end(KEY_NAMES),
+            const auto found = std::find_if(table.begin(), table.end(),
                                             [&](const auto &entry) { return entry.second == key; });
-            names.emplace_back(found->first);
+            if (found != table.end())
+            {
+                names.emplace_back(found->first);
+            }
         }
         return names;
     }

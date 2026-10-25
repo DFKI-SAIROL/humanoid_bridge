@@ -420,6 +420,30 @@ TEST(Remote, SticksAtTheirOffsets)
     EXPECT_EQ(remoteSticks(nullptr, 40).ry, 0.0f);
 }
 
+TEST(Remote, T1PadOnItsOwnBits)
+{
+    T1Pad pad;
+    EXPECT_EQ(t1KeyMask(pad), 0);
+    pad.rb = pad.rt = true;
+    EXPECT_EQ(t1KeyMask(pad), T1_RB | T1_RT);
+    EXPECT_EQ(keyNames(t1KeyMask(pad), t1Keys()), (std::vector<std::string>{"RB", "RT"}));
+}
+
+TEST(Remote, T1CombosLatchLikeTheG1s)
+{
+    Config config;
+    config.combo_damp = parseCombo({"RB", "RT"}, t1Keys());
+    config.combo_hold = parseCombo({"LB", "RB"}, t1Keys());
+    EXPECT_EQ(config.combo_damp, T1_RB | T1_RT);
+    EXPECT_EQ(remoteCause(T1_RB | T1_RT, config), Cause::RemoteDamp);
+    EXPECT_EQ(remoteCause(T1_LB | T1_RB, config), Cause::RemoteHold);
+    EXPECT_EQ(remoteCause(T1_LB | T1_RB | T1_RT, config), Cause::RemoteDamp);
+    EXPECT_EQ(remoteCause(T1_LT | T1_START, config), Cause::None) << "the ncbf deploy's start keys";
+    EXPECT_EQ(parseCombo({"R1"}, t1Keys()), 0) << "a Unitree name is not on the T1 gamepad";
+    EXPECT_EQ(keyTable("t1"), &t1Keys());
+    EXPECT_EQ(keyTable("go2"), nullptr);
+}
+
 TEST(Remote, ShortOrNullIsNotConnected)
 {
     const uint8_t on[2] = {0x55, 0x51};

@@ -346,6 +346,17 @@ namespace sairol_bridge
             return false;
         }
 
+        // The remote's key names: estop.remote_keys, unitree unless the robot says otherwise.
+        std::string remote_keys = "unitree";
+        nh->get_parameter("estop.remote_keys", remote_keys);
+        const estop::KeyTable *table = estop::keyTable(remote_keys);
+        if (table == nullptr)
+        {
+            RCLCPP_ERROR(nh->get_logger(), "estop.remote_keys must be unitree or t1, got '%s'", remote_keys.c_str());
+            return false;
+        }
+        keyTable_ = table;
+
         const std::pair<const char *, uint16_t *> combos[] = {
             {"estop.remote_combo_damp", &estopConfig_.combo_damp},
             {"estop.remote_combo_hold", &estopConfig_.combo_hold},
@@ -357,7 +368,7 @@ namespace sairol_bridge
             {
                 continue;
             }
-            *combo = estop::parseCombo(keys);
+            *combo = estop::parseCombo(keys, *table);
             if (*combo == 0)
             {
                 RCLCPP_ERROR(nh->get_logger(), "%s: empty, or a key name that is not on the remote", key);

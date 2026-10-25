@@ -4,10 +4,7 @@
 # Needs: ROS 2 Humble sourced, and this clone under <workspace>/src/.
 # Run tools/install-build-deps.sh first on a fresh host.
 #
-# Two things this exists to get right:
-#   - BUILD_BOOSTER_T1 defaults ON in CMake upstream and wants a Booster SDK at
-#     $HOME/library/booster/include. Only a T1 host has one, so the default here
-#     is OFF and --t1 opts in after checking the SDK is present.
+# What this exists to get right:
 #   - colcon never removes what it installed, so a renamed or deleted node keeps
 #     being offered by `ros2 run` until its build/ and install/ trees go.
 #     --clean <pkg> is that.
@@ -19,7 +16,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 
 WORKSPACE=""
-WITH_T1=0
 CLEAN_PKGS=()
 CLEAN_ALL=0
 
@@ -27,17 +23,14 @@ usage() {
     cat <<'EOF'
 Usage: tools/build.sh [options] [-- colcon args...]
 
-colcon build this workspace. Booster T1 is off unless you ask for it.
+colcon build this workspace, T1_bridge included (no Booster SDK needed).
 
 Options:
   --workspace <path>  colcon workspace root (default: the dir above src/)
-  --t1                also build T1_bridge; needs the Booster SDK headers
+  --t1                accepted and ignored: T1_bridge always builds
   --clean <pkg>       drop build/<pkg> and install/<pkg> first; repeatable
   --clean-all         drop build/, install/ and log/ first
   -h, --help          this text
-
-Environment:
-  BOOSTER_INCLUDE     Booster SDK include dir (default ~/library/booster/include)
 
 Anything after -- goes to colcon, e.g.
   tools/build.sh -- --packages-select robot_bridge
@@ -49,7 +42,7 @@ EOF
 while [ $# -gt 0 ]; do
     case "$1" in
         --workspace) WORKSPACE="${2:?--workspace needs a path}"; shift ;;
-        --t1)        WITH_T1=1 ;;
+        --t1)        ;;
         --clean)     CLEAN_PKGS+=("${2:?--clean needs a package name}"); shift ;;
         --clean-all) CLEAN_ALL=1 ;;
         -h|--help)   usage; exit 0 ;;
@@ -97,20 +90,6 @@ if ! [ -d "/opt/ros/$ROS_DISTRO/share/rosidl_generator_dds_idl" ] \
     exit 1
 fi
 
-BOOSTER_T1=OFF
-CMAKE_ARGS=()
-if [ "$WITH_T1" = 1 ]; then
-    BOOSTER_INCLUDE="${BOOSTER_INCLUDE:-$HOME/library/booster/include}"
-    if [ ! -d "$BOOSTER_INCLUDE" ]; then
-        echo "--t1 needs the Booster SDK headers at $BOOSTER_INCLUDE, which do not exist." >&2
-        echo "    build them per https://github.com/DFKI-SAIROL/booster_robotics_sdk" >&2
-        echo "    or set BOOSTER_INCLUDE to where they are." >&2
-        exit 1
-    fi
-    BOOSTER_T1=ON
-    CMAKE_ARGS+=("-DBOOSTER_INCLUDE_PATH=$BOOSTER_INCLUDE")
-fi
-
 # --- clean -----------------------------------------------------------------
 if [ "$CLEAN_ALL" = 1 ]; then
     rm -rf "${WORKSPACE:?}/build" "${WORKSPACE:?}/install" "${WORKSPACE:?}/log"
@@ -123,9 +102,9 @@ done
 
 # --- build -----------------------------------------------------------------
 echo "workspace: $WORKSPACE"
-echo "BUILD_BOOSTER_T1=$BOOSTER_T1"
 cd "$WORKSPACE"
-colcon build --cmake-args "-DBUILD_BOOSTER_T1=$BOOSTER_T1" ${CMAKE_ARGS+"${CMAKE_ARGS[@]}"} "$@"
+# ON, not the default: a build dir from before keeps a cached OFF. A later --cmake-args replaces this.
+colcon build --cmake-args -DBUILD_BOOSTER_T1=ON "$@"
 
 echo
 echo "done. Source it, then test:"
