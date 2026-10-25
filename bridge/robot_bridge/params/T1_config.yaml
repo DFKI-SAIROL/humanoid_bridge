@@ -66,7 +66,7 @@ robot_bridge:
     HeadPitch:
       idx: 1
       q_min: -0.314
-      q_max: 0.820
+      q_max: 0.96    # booster_assets T1_23dof: a limp head rests at its stop, which Arm must accept
       dq_limit: 12.56
       tau_limit: 7.0      
       kp: 5.0

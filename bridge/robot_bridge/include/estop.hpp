@@ -180,6 +180,8 @@ namespace sairol_bridge::estop
     class LinkWatch
     {
     public:
+        // ticks false: the robot's state has no tick (T1), so a reboot shows as BACK <gap> no_tick.
+        explicit LinkWatch(bool ticks = true) : ticks_(ticks) {}
         // A /lowstate arrived at steady time now_s. True if describe() changed.
         bool onState(double now_s, uint32_t tick);
         // Between states. True if describe() changed: LOST at STATE_LOSS_S, then once a second.
@@ -187,10 +189,11 @@ namespace sairol_bridge::estop
         // A successful /estop_reset or arming: BACK -> OK. Never clears LOST or RESTARTED.
         bool clear();
         bool restarted() const { return restarted_; }
-        // OK | LOST <s> | BACK <gap_s> no_restart | RESTARTED <gap_s>
+        // OK | LOST <s> | BACK <gap_s> no_restart | BACK <gap_s> no_tick | RESTARTED <gap_s>
         std::string describe() const;
 
     private:
+        bool ticks_{true};
         bool seen_{false};
         bool lost_{false};
         bool back_{false};

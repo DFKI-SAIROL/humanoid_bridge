@@ -451,6 +451,16 @@ TEST(Remote, ShortOrNullIsNotConnected)
     EXPECT_FALSE(remoteHeader(nullptr, 40));
 }
 
+TEST(Link, WithoutTicksABackSaysNoTick)
+{
+    LinkWatch link(false);
+    link.onState(0.0, 0);
+    link.poll(0.5);   // lost after STATE_LOSS_S
+    link.onState(5.0, 0);
+    EXPECT_EQ(link.describe(), "BACK 5.0 no_tick");
+    EXPECT_FALSE(link.restarted());
+}
+
 // --- silence after state loss ------------------------------------------------
 
 TEST(Silence, DueOnlyAfterStateLossPlusGrace)

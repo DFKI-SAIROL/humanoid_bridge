@@ -411,7 +411,8 @@ namespace sairol_bridge::estop
         back_ = true;
         gap_ = gap;
         // A running robot's tick moves on through a link drop; a booted one starts again near 0.
-        restarted_ = restarted_ || tick <= last_tick;
+        // Without a tick (ticks_ false) nothing tells the two apart: BACK no_tick.
+        restarted_ = restarted_ || (ticks_ && tick <= last_tick);
         return true;
     }
 
@@ -450,7 +451,7 @@ namespace sairol_bridge::estop
         }
         else if (back_)
         {
-            std::snprintf(text, sizeof(text), "BACK %.1f no_restart", gap_);
+            std::snprintf(text, sizeof(text), ticks_ ? "BACK %.1f no_restart" : "BACK %.1f no_tick", gap_);
         }
         else
         {

@@ -58,6 +58,7 @@ sairol_bridge::T1Bridge::T1Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     createArmingServices_();
     // Arming checks /joint_ctrl once; this catches a sender that starts later.
     jointCtrlWatchTimer_ = nh->create_wall_timer(1s, std::bind(&T1Bridge::watchJointCtrl_, this));
+    link_ = estop::LinkWatch(false);   // no tick on /low_state: a reboot cannot be told from a drop
     startLinkWatch_();
     RCLCPP_INFO(nh->get_logger(), "T1 bridge up: %d joints, DISARMED", numJoint_);
 }
