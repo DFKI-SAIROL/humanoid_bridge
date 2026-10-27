@@ -7,6 +7,9 @@ find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MessageHeader.msg"
+  "msg/DiagnosticType.msg"
+  "msg/DiagnosticInfo.msg"
+  "msg/DiagnosticInfoArray.msg"
   "msg/DomainErrorState.msg"
   "msg/JointCommand.msg"
   "msg/JointCommandArray.msg"

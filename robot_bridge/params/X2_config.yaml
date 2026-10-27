@@ -16,7 +16,7 @@ robot_bridge:
     imu_rpy_threshold: 1.0 #bridge roll/pitch threshold; verify on robot
 
     upper_limbs_kp_min: 0.0
-    upper_limbs_kp_max: 50.0 #reference gain envelope, not hardware maximum
+    upper_limbs_kp_max: 60.0 #reference gain envelope, not hardware maximum
     upper_limbs_kd_min: 0.0
     upper_limbs_kd_max: 3.0 #SDK mc-rl policy gains; normal preparation gains below are unchanged
 
@@ -62,7 +62,7 @@ robot_bridge:
       idx: 0
       q_min: -2.96700
       q_max: 2.81900
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 40.0
       kd: 4.0
@@ -74,7 +74,7 @@ robot_bridge:
       idx: 1
       q_min: -0.39205
       q_max: 3.06305
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 40.0
       kd: 4.0
@@ -86,7 +86,7 @@ robot_bridge:
       idx: 2
       q_min: -1.93970
       q_max: 3.68570
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 30.0
       kd: 3.0
@@ -98,7 +98,7 @@ robot_bridge:
       idx: 3
       q_min: -0.120365
       q_max: 2.527665
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 80.0
       kd: 8.0
@@ -110,7 +110,7 @@ robot_bridge:
       idx: 4
       q_min: -0.86580
       q_max: 0.51580
-      dq_limit: 13.087
+      dq_limit: 30.087
       tau_limit: 36.0
       kp: 40.0
       kd: 4.0
@@ -122,7 +122,7 @@ robot_bridge:
       idx: 5
       q_min: -0.28820
       q_max: 0.28820
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 20.0
       kd: 2.0
@@ -134,7 +134,7 @@ robot_bridge:
       idx: 6
       q_min: -2.96700
       q_max: 2.81900
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 40.0
       kd: 4.0
@@ -146,7 +146,7 @@ robot_bridge:
       idx: 7
       q_min: -3.06305
       q_max: 0.39205
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 40.0
       kd: 4.0
@@ -158,7 +158,7 @@ robot_bridge:
       idx: 8
       q_min: -3.68570
       q_max: 1.93970
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 30.0
       kd: 3.0
@@ -170,7 +170,7 @@ robot_bridge:
       idx: 9
       q_min: -0.120365
       q_max: 2.527665
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 80.0
       kd: 8.0
@@ -182,7 +182,7 @@ robot_bridge:
       idx: 10
       q_min: -0.86580
       q_max: 0.51580
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 36.0
       kp: 40.0
       kd: 4.0
@@ -194,7 +194,7 @@ robot_bridge:
       idx: 11
       q_min: -0.288750
       q_max: 0.288750
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 20.0
       kd: 2.0
@@ -206,7 +206,7 @@ robot_bridge:
       idx: 12
       q_min: -3.71144270
       q_max: 2.48971270
-      dq_limit: 11.936
+      dq_limit: 20.000
       tau_limit: 120.0
       kp: 150.0
       kd: 3.0
@@ -218,7 +218,7 @@ robot_bridge:
       idx: 13
       q_min: -0.34540
       q_max: 0.366519142919
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 48.0
       kp: 300.0
       kd: 3.0
@@ -230,7 +230,7 @@ robot_bridge:
       idx: 14
       q_min: -0.53680
       q_max: 0.53680
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 48.0
       kp: 300.0
       kd: 3.0
@@ -242,7 +242,7 @@ robot_bridge:
       idx: 15
       q_min: -3.33566545
       q_max: 2.28897445
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 36.0
       kp: 30.0
       kd: 1.0
@@ -254,7 +254,7 @@ robot_bridge:
       idx: 16
       q_min: -0.21370
       q_max: 3.14570
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 36.0
       kp: 20.0
       kd: 1.0
@@ -266,7 +266,7 @@ robot_bridge:
       idx: 17
       q_min: -2.81160
       q_max: 2.81160
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 20.0
       kd: 1.0
@@ -278,7 +278,7 @@ robot_bridge:
       idx: 18
       q_min: -2.473380
       q_max: 0.117780
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 50.0
       kd: 1.0
@@ -290,7 +290,7 @@ robot_bridge:
       idx: 19
       q_min: -2.81160
       q_max: 2.81160
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 50.0
       kd: 1.0
@@ -302,7 +302,7 @@ robot_bridge:
       idx: 20
       q_min: -0.57595890
       q_max: 0.57595890
-      dq_limit: 4.188
+      dq_limit: 10.0
       tau_limit: 4.8
       kp: 20.0
       kd: 1.0
@@ -314,7 +314,7 @@ robot_bridge:
       idx: 21
       q_min: -1.6213955
       q_max: 0.8356855
-      dq_limit: 4.188
+      dq_limit: 10.0
       tau_limit: 4.8
       kp: 20.0
       kd: 1.0
@@ -326,7 +326,7 @@ robot_bridge:
       idx: 22
       q_min: -3.33566545
       q_max: 2.28897445
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 36.0
       kp: 30.0
       kd: 1.0
@@ -338,7 +338,7 @@ robot_bridge:
       idx: 23
       q_min: -3.14570
       q_max: 0.21370
-      dq_limit: 13.088
+      dq_limit: 35.088
       tau_limit: 36.0
       kp: 20.0
       kd: 1.0
@@ -350,7 +350,7 @@ robot_bridge:
       idx: 24
       q_min: -2.81160
       q_max: 2.81160
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 20.0
       kd: 1.0
@@ -362,7 +362,7 @@ robot_bridge:
       idx: 25
       q_min: -2.473380
       q_max: 0.117780
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 50.0
       kd: 1.0
@@ -374,7 +374,7 @@ robot_bridge:
       idx: 26
       q_min: -2.81160
       q_max: 2.81160
-      dq_limit: 15.077
+      dq_limit: 35.07
       tau_limit: 24.0
       kp: 50.0
       kd: 1.0
@@ -386,7 +386,7 @@ robot_bridge:
       idx: 27
       q_min: -0.57595890
       q_max: 0.57595890
-      dq_limit: 4.188
+      dq_limit: 10.0
       tau_limit: 4.8
       kp: 20.0
       kd: 1.0
@@ -398,7 +398,7 @@ robot_bridge:
       idx: 28
       q_min: -0.8356855
       q_max: 1.6213955
-      dq_limit: 4.188
+      dq_limit: 10.0
       tau_limit: 4.8
       kp: 20.0
       kd: 1.0

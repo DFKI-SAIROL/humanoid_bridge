@@ -10,10 +10,13 @@
 #include <stdexcept>
 #include <cstdint>
 #include <atomic>
+#include <map>
+#include <utility>
 #include "bridge_core.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 #include "aimdk_msgs/msg/joint_command_array.hpp"
 #include "aimdk_msgs/msg/joint_state_array.hpp"
+#include "aimdk_msgs/msg/diagnostic_info_array.hpp"
 #include "aimdk_msgs/srv/get_system_state.hpp"
 #include "aimdk_msgs/srv/migrate_system_state.hpp"
 
@@ -39,6 +42,8 @@ private:
     void headStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr message);
     void imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr message);
 
+    void diagnosticsHandler_(aimdk_msgs::msg::DiagnosticInfoArray::SharedPtr message);
+
     bool checkJointStateMessage_(aimdk_msgs::msg::JointStateArray::SharedPtr message, size_t message_count, size_t state_offset, size_t active_count, std::string group_name);
     bool checkStateFreshness_() override;
 
@@ -53,6 +58,9 @@ private:
     rclcpp::Subscription<aimdk_msgs::msg::JointStateArray>::SharedPtr headStateSubscriber_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imuStateSubscriber_;
 
+    rclcpp::Subscription<aimdk_msgs::msg::DiagnosticInfoArray>::SharedPtr diagnosticsSubscriber_;
+    std::map<uint64_t, std::pair<int32_t, std::string>> lastDiagnostics_;
+
     rclcpp::Publisher<aimdk_msgs::msg::JointCommandArray>::SharedPtr legCommandPublisher_;
     rclcpp::Publisher<aimdk_msgs::msg::JointCommandArray>::SharedPtr waistCommandPublisher_;
     rclcpp::Publisher<aimdk_msgs::msg::JointCommandArray>::SharedPtr armCommandPublisher_;
@@ -60,7 +68,10 @@ private:
 
     rclcpp::TimerBase::SharedPtr dampingTimer_;
     std::vector<double> dampingKd_;
+    std::vector<uint16_t> lastJointErrorCodes_;
+    std::vector<uint8_t> lastGroupStates_;
     std::atomic<bool> dampingActive_{false};
+    std::chrono::steady_clock::time_point dampingStartTime_;
 
     bool enableHead_{false};
     int headJointCount_{0};

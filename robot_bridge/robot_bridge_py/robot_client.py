@@ -129,7 +129,7 @@ class RobotClient:
 
         self.cmd = RobotCmd()
         self.cmd.motor_cmd = [MotorCmd() for _ in range(self.num_dof)]
-        self.cmd.interpolation_order = interpolation_order
+        self.cmd.interpolation_order = float(interpolation_order)
         self.cmd.hold_position = False
         self.cmd.duration = 1 / control_frequency
 
@@ -493,20 +493,16 @@ class RobotClient:
             self._joy_future_x2.add_done_callback(self._joy_control_response_x2)
 
     def _check_joint_state_message_x2(self, msg, message_count, active_count, group_name):
-        from aimdk_msgs.msg import DomainErrorState
-
+        # Bridge owns vendor fault handling; only validate policy input data here.
         if len(msg.joints) != message_count:
             self.node.get_logger().error(f"X2 {group_name} state length mismatch.")
             return False
-        if msg.state.value != DomainErrorState.NONE:
-            self.node.get_logger().error(f"X2 {group_name} group reports state {msg.state.value}.")
-            return False
 
         max_value = np.finfo(np.float32).max
-        for joint in msg.joints[:active_count]:
+        for i, joint in enumerate(msg.joints[:active_count]):
             values = (joint.position, joint.velocity, joint.effort)
-            if joint.error_code != 0 or not np.all(np.isfinite(values)) or np.any(np.abs(values) > max_value):
-                self.node.get_logger().error(f"X2 {group_name} joint has invalid data or error code {joint.error_code}.")
+            if not np.all(np.isfinite(values)) or np.any(np.abs(values) > max_value):
+                self.node.get_logger().error(f"X2 {group_name} joint {i} contains invalid numerical data.")
                 return False
         return True
 
@@ -667,11 +663,11 @@ class RobotClient:
             
     def send_cmd(self, q_target_pos=None, q_target_vel=None, target_tau=None, target_kp=None, target_kd=None):
         for i in range(self.num_dof):
-            self.cmd.motor_cmd[i].q = float(q_target_pos[i]) if q_target_pos is not None else self._default_pos[i]
+            self.cmd.motor_cmd[i].q = float(q_target_pos[i] if q_target_pos is not None else self._default_pos[i])
             self.cmd.motor_cmd[i].dq = float(q_target_vel[i]) if q_target_vel is not None else 0.0
             self.cmd.motor_cmd[i].tau = float(target_tau[i]) if target_tau is not None else 0.0
-            self.cmd.motor_cmd[i].kp = float(target_kp[i]) if target_kp is not None else self._default_kp[i]
-            self.cmd.motor_cmd[i].kd = float(target_kd[i]) if target_kd is not None else self._default_kd[i]
+            self.cmd.motor_cmd[i].kp = float(target_kp[i] if target_kp is not None else self._default_kp[i])
+            self.cmd.motor_cmd[i].kd = float(target_kd[i] if target_kd is not None else self._default_kd[i])
         self.low_cmd_publisher.publish(self.cmd)
         
     def set_default_cmd(self, default_pos=None, default_kp=None, default_kd=None):

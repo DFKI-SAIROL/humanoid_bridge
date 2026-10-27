@@ -1,6 +1,33 @@
 #include "X2_bridge.hpp"
 #include "rmw/rmw.h"
+#include <iomanip>
+#include <sstream>
+#include "aimdk_msgs/msg/diagnostic_type.hpp"
 
+
+namespace {
+
+std::string DiagTypeName(int32_t value) {
+  switch (value) {
+  case aimdk_msgs::msg::DiagnosticType::NORMAL:
+    return "NORMAL";
+  case aimdk_msgs::msg::DiagnosticType::TRIGGER_APPEAR:
+    return "APPEAR";
+  case aimdk_msgs::msg::DiagnosticType::TRIGGER_DISAPPEAR:
+    return "DISAPPEAR";
+  default:
+    return "UNKNOWN(" + std::to_string(value) + ")";
+  }
+}
+
+std::string HexCode(uint64_t code, int width = 10) {
+  std::ostringstream oss;
+  oss << "0x" << std::hex << std::uppercase << std::setw(width)
+      << std::setfill('0') << code;
+  return oss.str();
+}
+
+} // namespace
 
 using namespace std::chrono_literals;
 
@@ -63,6 +90,8 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     std::vector<std::string> joint_names;
     nh->get_parameter("joint_names", joint_names);
     dampingKd_.resize(numJoint_);
+    lastJointErrorCodes_.resize(numJoint_, 0);
+    lastGroupStates_.resize(numJoint_, 0);
     for (const auto &name : joint_names)
     {
         int index = -1;
@@ -101,6 +130,12 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
 
     imuStateSubscriber_ = nh->create_subscription<sensor_msgs::msg::Imu>(
         "/aima/hal/imu/torso/state", qos, std::bind(&sairol_bridge::X2Bridge::imuStateHandler_, this, std::placeholders::_1));
+
+    // Match the official HDS diagnostics example QoS.
+    auto diagnosticsQos = rclcpp::QoS(10).best_effort().durability_volatile();
+    diagnosticsSubscriber_ = nh->create_subscription<aimdk_msgs::msg::DiagnosticInfoArray>(
+        "/aima/hds/diag_code_list", diagnosticsQos, std::bind(&sairol_bridge::X2Bridge::diagnosticsHandler_, this, std::placeholders::_1));
+    RCLCPP_INFO(nh->get_logger(), "Subscribed: /aima/hds/diag_code_list");
 
     // Wait for state publishers before checking command ownership.
     RCLCPP_INFO(nh->get_logger(), "Waiting for X2 joint and IMU state publishers...");
@@ -144,11 +179,19 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         headCommandPublisher_ = nh->create_publisher<aimdk_msgs::msg::JointCommandArray>(
             "/aima/hal/joint/head/command", qos);
     }
-    // Core stops its command loop after stopping; continue damping on the executor.
+    // Continue damping for three seconds after stopping, then shut down the node.
     dampingTimer_ = nh->create_wall_timer(std::chrono::duration<double>(controlDt_), [this]() {
         std::unique_lock<std::mutex> lock(mutex_);
         if (dampingActive_)
         {
+            if (std::chrono::steady_clock::now() - dampingStartTime_ >= std::chrono::seconds(3))
+            {
+                dampingTimer_->cancel();
+                lock.unlock();
+                RCLCPP_WARN(nh->get_logger(), "X2 damping interval complete; shutting down Bridge. Physical stopping is not confirmed.");
+                rclcpp::shutdown(nh->get_node_base_interface()->get_context());
+                return;
+            }
             publishDamping_();
         }
     });
@@ -308,6 +351,35 @@ void sairol_bridge::X2Bridge::stop()
     }
 
     RCLCPP_INFO(nh->get_logger(), "X2 Bridge stopped.");
+}
+
+void sairol_bridge::X2Bridge::diagnosticsHandler_(aimdk_msgs::msg::DiagnosticInfoArray::SharedPtr msg)
+{
+    std::ostringstream entries;
+    size_t changed_count = 0;
+    for (const auto &d : msg->diagnostics)
+    {
+        // Timestamps change on repeated reports; compare diagnostic content only.
+        const auto signature = std::make_pair(d.type.value, d.info);
+        const auto previous = lastDiagnostics_.find(d.diag_code);
+        if (previous != lastDiagnostics_.end() && previous->second == signature)
+        {
+            continue;
+        }
+        lastDiagnostics_[d.diag_code] = signature;
+        ++changed_count;
+        entries << "\n  diag_code=" << HexCode(d.diag_code)
+                << "  type=" << DiagTypeName(d.type.value)
+                << "  module_id=" << static_cast<int>(d.module_id)
+                << "  ts=" << d.timestamp << "  info=\"" << d.info << "\"";
+    }
+    if (changed_count == 0)
+    {
+        return;
+    }
+    std::ostringstream oss;
+    oss << "[Diagnostics] count=" << changed_count << entries.str();
+    RCLCPP_INFO(nh->get_logger(), "%s", oss.str().c_str());
 }
 
 void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr msg)
@@ -630,7 +702,8 @@ void sairol_bridge::X2Bridge::finishControl_() {
     controlStarted_ = false;
     if (!dampingActive_.exchange(true))
     {
-        RCLCPP_WARN(nh->get_logger(), "X2 stop damping active: posture hold released. Restart required to resume motion.");
+        dampingStartTime_ = std::chrono::steady_clock::now();
+        RCLCPP_WARN(nh->get_logger(), "X2 stop damping active: posture hold released. Bridge will exit after 3 seconds of damping commands.");
     }
     publishDamping_();
 }
@@ -641,7 +714,7 @@ void sairol_bridge::X2Bridge::stopControlServiceCB_(
 {
     finishControl_();
     response->success = true;
-    response->message = "X2 damping commands published and latched; physical stopping is not confirmed.";
+    response->message = "X2 damping commands published; Bridge will exit after 3 seconds. Physical stopping is not confirmed.";
 }
 
 void sairol_bridge::X2Bridge::publishDamping_()
@@ -682,11 +755,29 @@ bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStat
         return false;
     }
 
-    // Check group state
-    if (msg->state.value != aimdk_msgs::msg::DomainErrorState::NONE)
+    // Report each group-state transition once; retain the existing rejection.
+    const auto group_state = msg->state.value;
+    if (group_state != aimdk_msgs::msg::DomainErrorState::NONE &&
+        group_state != lastGroupStates_[state_offset])
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 %s group reports state %u.", group_name.c_str(), msg->state.value);
+        RCLCPP_ERROR(nh->get_logger(), "X2 %s group reports state %u.", group_name.c_str(), group_state);
+    }
+    lastGroupStates_[state_offset] = group_state;
+    if (group_state != aimdk_msgs::msg::DomainErrorState::NONE)
+    {
         return false;
+    }
+
+    // Track all active joints, including recovery to zero, before numeric checks.
+    for (size_t i = 0; i < active_count; ++i)
+    {
+        const auto &joint = msg->joints[i];
+        auto &last_code = lastJointErrorCodes_[state_offset + i];
+        if (joint.error_code != 0 && joint.error_code != last_code)
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 %s joint %zu reports error code %u (log only). position: %f, velocity: %f, effort: %f", group_name.c_str(), i, joint.error_code, joint.position, joint.velocity, joint.effort);
+        }
+        last_code = joint.error_code;
     }
 
     const double max_value = std::numeric_limits<float>::max();
@@ -698,9 +789,9 @@ bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStat
             !std::isfinite(joint.effort) ||
             std::abs(joint.position) > max_value ||
             std::abs(joint.velocity) > max_value ||
-            std::abs(joint.effort) > max_value || joint.error_code != 0)
+            std::abs(joint.effort) > max_value)
         {
-            RCLCPP_ERROR(nh->get_logger(), "X2 %s joint %zu has invalid data or error code %u.", group_name.c_str(), i, joint.error_code);
+            RCLCPP_ERROR(nh->get_logger(), "X2 %s joint %zu has invalid numerical data (reported error code %u). position: %f, velocity: %f, effort: %f", group_name.c_str(), i, joint.error_code, joint.position, joint.velocity, joint.effort);
             return false;
         }
     }
@@ -714,27 +805,82 @@ bool sairol_bridge::X2Bridge::checkStateFreshness_()
     const auto now = std::chrono::steady_clock::now();
     if ((!legStateValid_ || std::chrono::duration<double>(now - lastLegStateTime_).count() > legStateTimeout_))
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 leg state is missing, invalid or stale.");
+        if (lastLegStateTime_ == std::chrono::steady_clock::time_point{})
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 leg feedback unavailable: no valid message has been accepted since startup. valid=%s, timeout_limit=%.1f ms. Check the preceding message-validation errors.", legStateValid_ ? "true" : "false", legStateTimeout_ * 1000.0);
+        }
+        else
+        {
+            const double age_ms = std::chrono::duration<double, std::milli>(now - lastLegStateTime_).count();
+            RCLCPP_ERROR(nh->get_logger(), "X2 leg feedback check failed: reason=%s, valid=%s, last_valid_update_age=%.1f ms, timeout_limit=%.1f ms, timed_out=%s. Age measures local accepted callbacks, not robot transmit time.",
+                         legStateValid_ ? "update timeout" : "latest message rejected",
+                         legStateValid_ ? "true" : "false", age_ms, legStateTimeout_ * 1000.0,
+                         std::chrono::duration<double>(now - lastLegStateTime_).count() > legStateTimeout_ ? "true" : "false");
+        }
         return false;
     }
     if ((!waistStateValid_ || std::chrono::duration<double>(now - lastWaistStateTime_).count() > waistStateTimeout_))
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 waist state is missing, invalid or stale.");
+        if (lastWaistStateTime_ == std::chrono::steady_clock::time_point{})
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 waist feedback unavailable: no valid message has been accepted since startup. valid=%s, timeout_limit=%.1f ms. Check the preceding message-validation errors.", waistStateValid_ ? "true" : "false", waistStateTimeout_ * 1000.0);
+        }
+        else
+        {
+            const double age_ms = std::chrono::duration<double, std::milli>(now - lastWaistStateTime_).count();
+            RCLCPP_ERROR(nh->get_logger(), "X2 waist feedback check failed: reason=%s, valid=%s, last_valid_update_age=%.1f ms, timeout_limit=%.1f ms, timed_out=%s. Age measures local accepted callbacks, not robot transmit time.",
+                         waistStateValid_ ? "update timeout" : "latest message rejected",
+                         waistStateValid_ ? "true" : "false", age_ms, waistStateTimeout_ * 1000.0,
+                         std::chrono::duration<double>(now - lastWaistStateTime_).count() > waistStateTimeout_ ? "true" : "false");
+        }
         return false;
     }
     if ((!armStateValid_ || std::chrono::duration<double>(now - lastArmStateTime_).count() > armStateTimeout_))
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 arm state is missing, invalid or stale.");
+        if (lastArmStateTime_ == std::chrono::steady_clock::time_point{})
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 arm feedback unavailable: no valid message has been accepted since startup. valid=%s, timeout_limit=%.1f ms. Check the preceding message-validation errors.", armStateValid_ ? "true" : "false", armStateTimeout_ * 1000.0);
+        }
+        else
+        {
+            const double age_ms = std::chrono::duration<double, std::milli>(now - lastArmStateTime_).count();
+            RCLCPP_ERROR(nh->get_logger(), "X2 arm feedback check failed: reason=%s, valid=%s, last_valid_update_age=%.1f ms, timeout_limit=%.1f ms, timed_out=%s. Age measures local accepted callbacks, not robot transmit time.",
+                         armStateValid_ ? "update timeout" : "latest message rejected",
+                         armStateValid_ ? "true" : "false", age_ms, armStateTimeout_ * 1000.0,
+                         std::chrono::duration<double>(now - lastArmStateTime_).count() > armStateTimeout_ ? "true" : "false");
+        }
         return false;
     }
     if (enableHead_ && (!headStateValid_ || std::chrono::duration<double>(now - lastHeadStateTime_).count() > headStateTimeout_))
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 head state is missing, invalid or stale.");
+        if (lastHeadStateTime_ == std::chrono::steady_clock::time_point{})
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 head feedback unavailable: no valid message has been accepted since startup. valid=%s, timeout_limit=%.1f ms. Check the preceding message-validation errors.", headStateValid_ ? "true" : "false", headStateTimeout_ * 1000.0);
+        }
+        else
+        {
+            const double age_ms = std::chrono::duration<double, std::milli>(now - lastHeadStateTime_).count();
+            RCLCPP_ERROR(nh->get_logger(), "X2 head feedback check failed: reason=%s, valid=%s, last_valid_update_age=%.1f ms, timeout_limit=%.1f ms, timed_out=%s. Age measures local accepted callbacks, not robot transmit time.",
+                         headStateValid_ ? "update timeout" : "latest message rejected",
+                         headStateValid_ ? "true" : "false", age_ms, headStateTimeout_ * 1000.0,
+                         std::chrono::duration<double>(now - lastHeadStateTime_).count() > headStateTimeout_ ? "true" : "false");
+        }
         return false;
     }
     if ((!imuStateValid_ || std::chrono::duration<double>(now - lastImuStateTime_).count() > imuStateTimeout_))
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 imu state is missing, invalid or stale.");
+        if (lastImuStateTime_ == std::chrono::steady_clock::time_point{})
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 imu feedback unavailable: no valid message has been accepted since startup. valid=%s, timeout_limit=%.1f ms. Check the preceding message-validation errors.", imuStateValid_ ? "true" : "false", imuStateTimeout_ * 1000.0);
+        }
+        else
+        {
+            const double age_ms = std::chrono::duration<double, std::milli>(now - lastImuStateTime_).count();
+            RCLCPP_ERROR(nh->get_logger(), "X2 imu feedback check failed: reason=%s, valid=%s, last_valid_update_age=%.1f ms, timeout_limit=%.1f ms, timed_out=%s. Age measures local accepted callbacks, not robot transmit time.",
+                         imuStateValid_ ? "update timeout" : "latest message rejected",
+                         imuStateValid_ ? "true" : "false", age_ms, imuStateTimeout_ * 1000.0,
+                         std::chrono::duration<double>(now - lastImuStateTime_).count() > imuStateTimeout_ ? "true" : "false");
+        }
         return false;
     }
     if (checkComponentSkew_)

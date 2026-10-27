@@ -83,6 +83,8 @@ ament_target_dependencies(H1_bridge
 )
 
 ament_python_install_package(robot_bridge_py)
+ament_python_install_package(whole_body_controller
+  PACKAGE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../whole_body_controller")
 
 
 install(
@@ -231,7 +233,7 @@ endif()
 
 # ============================================================== AgiBot X2 =================================================================================
 
-option(BUILD_AGIBOT_X2 "Build AgiBot X2 bridge" OFF)
+option(BUILD_AGIBOT_X2 "Build AgiBot X2 bridge" ON)
 
 if(BUILD_AGIBOT_X2)
   find_package(aimdk_msgs REQUIRED)

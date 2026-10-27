@@ -1,9 +1,9 @@
 if [ "$USER" != "unitree" ]; then
-    echo "Source /opt/ros/humble/setup.bash and set RMW_IMPLEMENTATION and CYCLONEDDS_URI"
-    source /opt/ros/humble/setup.bash
+    echo "Set CycloneDDS and network interface enp2s0; ROS environment must already be activated"
+    #source /opt/ros/humble/setup.bash
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces>
-                                <NetworkInterface name="enp4s0" priority="default" multicast="default" />
+                                <NetworkInterface name="enp2s0" priority="default" multicast="default" />
                             </Interfaces></General></Domain></CycloneDDS>'
 fi
 
@@ -14,5 +14,5 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR=$(dirname $(dirname $SCRIPT_DIR))
 
-source $WORKSPACE_DIR/install/setup.bash
+source "$WORKSPACE_DIR/install/local_setup.bash" || return 1
 echo "Sourced workspace: $WORKSPACE_DIR"
