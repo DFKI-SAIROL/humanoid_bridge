@@ -118,6 +118,11 @@ case "$ROBOT" in
         RELEASE_ARGS=(--stand-down); ESTOP_HINT="R1+R2 damp, L1+R1 hold" ;;
     *) echo "--robot must be g1, t1 or go2, not '$ROBOT'" >&2; exit 2 ;;
 esac
+# TODO(real T1, real Go2): remove after each robot's first power-on (robot_web_commander PROJECT_ROADMAP.md).
+if [ "$SIM" = 0 ] && [ "$ROBOT" != g1 ]; then
+    echo "refused: the real $ROBOT is not tested with this bridge yet; use --sim (TODO: first power-on)" >&2
+    exit 2
+fi
 CONFIG_NAME="${ROBOT^^}"; [ "$ROBOT" = go2 ] && CONFIG_NAME=Go2
 [ -n "$PARAMS" ] || PARAMS="$REPO/bridge/robot_bridge/params/${CONFIG_NAME}_config.yaml"
 BRIDGES=(G1_bridge T1_bridge Go2_bridge)   # one robot per host: any of them counts
