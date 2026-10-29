@@ -1,0 +1,31 @@
+# Original visual meshes; collision display disabled. MID360 mount uses the editable URDF baseline.
+schema_version: 1
+head_camera:
+  video_topic: /frontvideostream
+layout:
+  language: zh
+model:
+  mesh_face_limit: 0
+attitude:
+  enabled: true
+  imu_frame: imu_link
+spatial:
+  world_frame: imu_world
+  static_transforms:
+  - parent: lidar_link
+    child: livox_frame
+    position:
+    - 0.0
+    - 0.0
+    - 0.0
+    quaternion_xyzw:
+    # Raw MID360 axes differ from the URDF engineering frame: Rx(pi).
+    # Unitree nominal position/yaw retained; Rx(pi) checked against this robot's IMU.
+    # No separately documented raw-frame origin/yaw correction has been added.
+    - 1.0
+    - 0.0
+    - 0.0
+    - 0.0
+source:
+  body_target_topic: /robot_cmd
+  hand_target_topic: /inspire/cmd

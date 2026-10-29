@@ -5,6 +5,8 @@ markdown
 `Humanoid_bridge` is a ROS 2 package for controlling Unitree and Booster robots (e.g., H1, G1, T1).
 It receives commands from the client node, decides whether to perform command interpolation, and, after completing command and state safety checks, sends real-time motor control commands to the robot.
 
+H1-2 传感器与可视化的安装、接线及启动步骤见 [H1-2 安装与启动](H1_2_SETUP.md)。
+
 ---
 
 ## Installation

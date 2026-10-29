@@ -1,0 +1,11 @@
+# Validated dependency snapshot: Linux x86_64, Python 3.14. Not a cross-platform wheel/hash lock.
+attrs==26.1.0
+numpy==2.5.4
+pillow==13.0.0
+psutil==7.2.2
+pyarrow==26.0.0
+PyYAML==6.0.3
+rerun-sdk==0.40.0
+typing_extensions==4.16.0
+
+fast-simplification==0.1.13

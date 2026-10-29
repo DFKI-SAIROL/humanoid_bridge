@@ -13,7 +13,7 @@ class RobotController:
         self.config = cfg
         self.node = node
         self.num_dof = 20
-        self.robot = RobotClient(node=self.node, robot_type="H1", num_dof=self.num_dof, control_frequency=50.0, interpolation_order=0.0)
+        self.robot = RobotClient(node=self.node, robot_type="H1", num_dof=self.num_dof, control_frequency=50.0, interpolation_order=0.0, enable_joystick=True)
         self.timer = self.node.create_timer(0.02, self.step)  # 50 Hz control frequency
         self.action = np.zeros(cfg.num_actions, dtype=np.float32)
         # Initialize components

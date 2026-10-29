@@ -1,0 +1,22 @@
+# Alternative live environment using RoboStack. System ROS Humble is also supported.
+# This is a reproducible specification, not a solver lock for every platform.
+name: h1_2_viewer_ros2
+channels:
+  - robostack-humble
+  - conda-forge
+dependencies:
+  - python=3.14
+  - ros-humble-ros-base
+  - ros-humble-rosidl-generator-dds-idl
+  - ros-humble-rmw-cyclonedds-cpp
+  - colcon-common-extensions
+  - cmake
+  - c-compiler
+  - cxx-compiler
+  - make
+  - pip
+  - pip:
+      - rerun-sdk==0.40.0
+      - numpy>=2,<3
+      - PyYAML>=6,<7
+      - fast-simplification==0.1.13

@@ -1,0 +1,32 @@
+# Stock H1-2: body IMU, MID360 and USB-connected RealSense on PC4.
+# Model is downloaded by h1-2-models fetch; no machine-local model directory required.
+schema_version: 1
+layout:
+  language: zh
+head_camera:
+  video_topic: null
+  rgb_topic: /camera/head/color/image_raw
+  depth_topic: /camera/head/aligned_depth_to_color/image_raw
+  info_topic: /camera/head/aligned_depth_to_color/camera_info
+  depth_hz: 5.0
+  colorize_depth: true
+  rgbd_tolerance_ms: 0.0
+  stride: 8
+attitude:
+  enabled: true
+  imu_frame: imu_link
+spatial:
+  world_frame: imu_world
+  ros:
+    tf_static_topic: /tf_static
+  static_transforms:
+  # Nominal mechanical mount; the driver supplies internal optical calibration.
+  - parent: camera_link
+    child: head_link
+    position: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+  # Raw MID360 sensor axes -> Unitree engineering frame.
+  - parent: lidar_link
+    child: livox_frame
+    position: [0.0, 0.0, 0.0]
+    quaternion_xyzw: [1.0, 0.0, 0.0, 0.0]

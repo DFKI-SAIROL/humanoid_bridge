@@ -8,35 +8,11 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import PointCloud2, PointField
+from sensor_msgs.msg import PointCloud2
 import rerun as rr
 
 
-def cloud_xyz(message):
-    """Respect PointCloud2 field offsets, endianness and row padding."""
-    if not message.width or not message.height:
-        return np.empty((0, 3), dtype=np.float32)
-    fields = {field.name: field for field in message.fields}
-    formats, offsets = [], []
-    byte_order = ">" if message.is_bigendian else "<"
-    for name in ("x", "y", "z"):
-        field = fields.get(name)
-        if field is None or field.count != 1:
-            raise ValueError(f"Missing scalar {name} field")
-        types = {PointField.FLOAT32: "f4", PointField.FLOAT64: "f8"}
-        if field.datatype not in types:
-            raise ValueError(f"Unsupported {name} datatype: {field.datatype}")
-        formats.append(byte_order + types[field.datatype])
-        offsets.append(field.offset)
-    dtype = np.dtype(dict(names=["x", "y", "z"], formats=formats,
-                         offsets=offsets, itemsize=message.point_step))
-    if message.row_step < message.width * message.point_step:
-        raise ValueError("PointCloud2 row_step is too small")
-    points = np.ndarray((message.height, message.width), dtype=dtype,
-                        buffer=message.data,
-                        strides=(message.row_step, message.point_step))
-    xyz = np.stack([points[name].ravel() for name in ("x", "y", "z")], axis=1)
-    return np.asarray(xyz[np.isfinite(xyz).all(axis=1)], dtype=np.float32)
+from h1_2_viewer.pointcloud import cloud_xyz
 
 
 class LidarViewer(Node):

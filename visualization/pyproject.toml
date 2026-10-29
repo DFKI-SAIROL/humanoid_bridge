@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "h1-2-viewer"
+version = "0.2.0"
+description = "Read-only, configurable H1-2 Rerun dashboard with optional ROS 2 adapters"
+requires-python = ">=3.11"
+dependencies = ["rerun-sdk==0.40.0", "numpy>=2,<3", "PyYAML>=6,<7", "fast-simplification==0.1.13"]
+
+[project.scripts]
+h1-2-viewer = "h1_2_viewer.cli:main"
+h1-2-models = "h1_2_viewer.assets:main"
+
+[project.optional-dependencies]
+video = ["av>=16,<18"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["h1_2_viewer*"]
+
+[tool.setuptools.package-data]
+h1_2_viewer = ["config/*.yaml", "config/*.json"]

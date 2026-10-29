@@ -124,6 +124,7 @@ class RobotClient:
         self.node: Node = node
         self.robot_type = robot_type
         self.num_dof = num_dof
+        self.enable_joystick = enable_joystick
         self.time_count = 0
         self.control_frequency = control_frequency
 
@@ -405,6 +406,9 @@ class RobotClient:
                 self._q_vel[i] = motor.dq
                 self._tau[i] = motor.tau_est
 
+        # Explicit opt-in: telemetry callbacks must not trigger web-side control.
+        if not self.enable_joystick:
+            return
         # Handle joystick input
         self.remote_controller.set(low_state_msg.wireless_remote)
         

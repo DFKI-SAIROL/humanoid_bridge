@@ -1,0 +1,11 @@
+# Read-only observer of the existing H1-2 whole-body client.
+# Model defaults to the verified official cache; merge your own model/sensor configuration as needed.
+schema_version: 1
+source:
+  type: unitree
+  state_topic: /lowstate
+  hand_topic: /inspire/state
+  body_target_topic: /robot_cmd
+  hand_target_topic: /inspire/cmd
+layout:
+  language: zh

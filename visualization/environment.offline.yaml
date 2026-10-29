@@ -1,0 +1,12 @@
+# Portable offline environment; no ROS, CUDA, robot bridge, or machine-specific prefix.
+name: h1_2_viewer
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14
+  - pip
+  - pip:
+      - rerun-sdk==0.40.0
+      - numpy>=2,<3
+      - PyYAML>=6,<7
+      - fast-simplification==0.1.13
