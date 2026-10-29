@@ -1,5 +1,8 @@
 .vscode/
 
+# Local usage document
+/H1_2_SETUP.md
+
 # ROS build and development files
 build/
 devel/
