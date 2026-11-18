@@ -533,12 +533,12 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
         }
 
         // Limit position when stiffness is positive
-        if (cmd.stiffness > 0.0)
-        {
-            cmd.position = std::clamp(cmd.position,
-                (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) - joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q,
-                (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) + joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q);
-        }
+        // if (cmd.stiffness > 0.0)
+        // {
+        //     cmd.position = std::clamp(cmd.position,
+        //         (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) - joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q,
+        //         (cmd.damping * (currentState_.motor_state[i].dq - cmd.velocity) + joint_info.tau_limit) / cmd.stiffness + currentState_.motor_state[i].q);
+        // }
 
         last_cmd.q = cmd.position;
         last_cmd.dq = cmd.velocity;
