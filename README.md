@@ -62,6 +62,41 @@ colcon build --cmake-args -DBUILD_BOOSTER_T1=OFF # if H1 or G1
 
 
 ## Operation guide 
+### X2 ROS over Wi-Fi
+
+To run the bridge and policy on the host PC using the robot hotspot, source
+`setup_x2_wifi.sh` with the Wi-Fi interface connected to that hotspot. It reads
+the interface's current IPv4 address and restricts Fast DDS to that address and
+loopback. It also adds a temporary host route to the motion computer at
+`10.0.1.40` through the hotspot at `192.168.88.88`, and configures that internal
+address plus `127.0.0.1` as DDS discovery peers. The localhost peer allows the
+bridge, policy, and joystick processes to discover one another on the host PC.
+The route uses NetworkManager without changing
+the saved connection profile or default route. An interface whitelist alone is
+insufficient when Ethernet is disconnected. The ROS domain defaults to 0; set
+`ROS_DOMAIN_ID` before sourcing if the robot uses another domain.
+
+In the bridge terminal:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/sairol_ws/src/humanoid_bridge/setup_x2_wifi.sh wlx4086cb414d59
+ros2 run robot_bridge X2_bridge --ros-args \
+  --params-file ~/sairol_ws/src/humanoid_bridge/robot_bridge/params/X2_config.yaml
+```
+
+Source the same two setup scripts in the policy and joystick terminals before
+starting their nodes. Replace `wlx4086cb414d59` with your robot-facing Wi-Fi
+interface. After reconnecting Wi-Fi, source the script again to restore the
+temporary route; if its IP changes, restart the nodes too.
+Each invocation creates a temporary DDS profile in `/tmp`; keep that file while
+using the sourced environment. SSH configuration is not used for ROS transport.
+
+Robot state reception and the read-only `GetSystemState` service were checked
+with Ethernet disconnected, using the host route and explicit discovery peer.
+This does not validate walking or control performance over Wi-Fi. Bridge startup
+requests `Develop_MC`.
+
 ### Launch bridge interface
 Open a terminal for bridge interface, for T1:
 ```bash
