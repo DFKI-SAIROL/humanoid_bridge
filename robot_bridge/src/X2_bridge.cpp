@@ -153,34 +153,54 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
         }
     });
 
-    // Reject motion services while damping is latched, with an explicit reply.
+    // Old /robot_cmd traffic cannot release damping; only /start_control can.
+    desiredSubscriber_.reset();
+    desiredSubscriber_ = nh->create_subscription<bridge_interface::msg::RobotCmd>(
+        "/robot_cmd", 1, [this](bridge_interface::msg::RobotCmd::SharedPtr message) {
+            std::lock_guard<std::recursive_mutex> guard(controlMutex_);
+            robotCmdCallBack_(message);
+        });
     startControlService_.reset();
     startControlService_ = nh->create_service<bridge_interface::srv::SetDefaultPosition>("start_control",
         [this](const std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Request> request,
                std::shared_ptr<bridge_interface::srv::SetDefaultPosition::Response> response) {
-            if (!dampingActive_)
-            {
-                startControlServiceCB_(request, response);
-            }
-            if (dampingActive_)
+            std::lock_guard<std::recursive_mutex> guard(controlMutex_);
+            const auto valid_size = [this](size_t size) { return size == 0 || size == static_cast<size_t>(numJoint_); };
+            if (controlStarted_ || !valid_size(request->default_position.size()) ||
+                !valid_size(request->default_kp.size()) || !valid_size(request->default_kd.size()))
             {
                 response->success = false;
-                response->message = "X2 stop damping is latched; inspect the robot and restart the bridge.";
+                response->message = "X2 already started or invalid start array length.";
+                return;
             }
+            bridge_interface::msg::RobotCmd command;
+            command.motor_cmd.resize(numJoint_);
+            for (int i = 0; i < numJoint_; ++i)
+            {
+                auto &cmd = command.motor_cmd[i];
+                cmd.q = request->default_position.empty() ? ready_q_[i] : request->default_position[i];
+                cmd.kp = request->default_kp.empty() ? joints_[i].kp : request->default_kp[i];
+                cmd.kd = request->default_kd.empty() ? joints_[i].kd : request->default_kd[i];
+            }
+            response->success = initControl_(command);
+            response->message = response->success
+                ? "X2 control started from measured posture."
+                : "X2 start rejected: check feedback, joint limits, gains and command ownership; damping remains active if stopped.";
         });
 
     readyPositionService_.reset();
     readyPositionService_ = nh->create_service<std_srvs::srv::Trigger>("ready_position_control",
         [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-            if (!dampingActive_)
+            std::lock_guard<std::recursive_mutex> guard(controlMutex_);
+            if (controlStarted_ && !dampingActive_)
             {
                 readyPositionControlServiceCB_(request, response);
             }
-            if (dampingActive_)
+            else
             {
                 response->success = false;
-                response->message = "X2 stop damping is latched; inspect the robot and restart the bridge.";
+                response->message = "X2 motion is stopped; use start_control to rearm after inspection.";
             }
         });
 
@@ -188,14 +208,15 @@ sairol_bridge::X2Bridge::X2Bridge(rclcpp::Node::SharedPtr node) : BridgeCore(nod
     zeroPositionService_ = nh->create_service<std_srvs::srv::Trigger>("zero_position_control",
         [this](const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-            if (!dampingActive_)
+            std::lock_guard<std::recursive_mutex> guard(controlMutex_);
+            if (controlStarted_ && !dampingActive_)
             {
                 zeroPositionControlServiceCB_(request, response);
             }
-            if (dampingActive_)
+            else
             {
                 response->success = false;
-                response->message = "X2 stop damping is latched; inspect the robot and restart the bridge.";
+                response->message = "X2 motion is stopped; use start_control to rearm after inspection.";
             }
         });
 
@@ -312,6 +333,7 @@ void sairol_bridge::X2Bridge::stop()
 
 void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr msg)
 {
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
     std::unique_lock<std::mutex> lock(mutex_);
 
     legStateValid_ = false;
@@ -336,6 +358,7 @@ void sairol_bridge::X2Bridge::legStateHandler_(aimdk_msgs::msg::JointStateArray:
 
 void sairol_bridge::X2Bridge::waistStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr msg)
 {
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
     std::unique_lock<std::mutex> lock(mutex_);
 
     waistStateValid_ = false;
@@ -360,6 +383,7 @@ void sairol_bridge::X2Bridge::waistStateHandler_(aimdk_msgs::msg::JointStateArra
 
 void sairol_bridge::X2Bridge::armStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr msg)
 {
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
     std::unique_lock<std::mutex> lock(mutex_);
 
     armStateValid_ = false;
@@ -384,6 +408,7 @@ void sairol_bridge::X2Bridge::armStateHandler_(aimdk_msgs::msg::JointStateArray:
 
 void sairol_bridge::X2Bridge::headStateHandler_(aimdk_msgs::msg::JointStateArray::SharedPtr msg)
 {
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
     std::unique_lock<std::mutex> lock(mutex_);
 
     headStateValid_ = false;
@@ -412,6 +437,7 @@ void sairol_bridge::X2Bridge::headStateHandler_(aimdk_msgs::msg::JointStateArray
 
 void sairol_bridge::X2Bridge::imuStateHandler_(sensor_msgs::msg::Imu::SharedPtr msg)
 {
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
     std::unique_lock<std::mutex> lock(mutex_);
     imuStateValid_ = false;
 
@@ -578,59 +604,98 @@ void sairol_bridge::X2Bridge::publishLowCommand_()
     }
 }
 
+void sairol_bridge::X2Bridge::update_()
+{
+    rclcpp::WallRate rate(1.0 / controlDt_);
+    while (rclcpp::ok())
+    {
+        {
+            std::lock_guard<std::recursive_mutex> guard(controlMutex_);
+            if (controlStarted_)
+            {
+                if (!checkState_() || nh->get_clock()->now().seconds() > tValid_)
+                {
+                    finishControl_();
+                    RCLCPP_ERROR(nh->get_logger(), "X2 control stopped due to invalid state or command timeout.");
+                }
+                else
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    publishLowCommand_();
+                }
+            }
+        }
+        rate.sleep();
+    }
+}
+
 bool sairol_bridge::X2Bridge::initControl_(bridge_interface::msg::RobotCmd default_cmd)
 {
-    if (dampingActive_)
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
+    if (controlStarted_ || !checkState_())
     {
         return false;
     }
-
-
+    // Our HAL publishers must be the only command owners. A CLI start without
+    // a client is allowed, but multiple /robot_cmd clients are not.
+    if (nh->count_publishers("/robot_cmd") > 1 ||
+        nh->count_publishers("/aima/hal/joint/leg/command") != 1 ||
+        nh->count_publishers("/aima/hal/joint/waist/command") != 1 ||
+        nh->count_publishers("/aima/hal/joint/arm/command") != 1 ||
+        (enableHead_ && nh->count_publishers("/aima/hal/joint/head/command") != 1))
+    {
+        RCLCPP_ERROR(nh->get_logger(), "X2 start rejected: conflicting command publishers.");
+        return false;
+    }
+    if (default_cmd.motor_cmd.size() != static_cast<size_t>(numJoint_))
+    {
+        return false;
+    }
     for (int i = 0; i < numJoint_; ++i)
     {
-        lowCommandDesired_.motor_cmd[i].q = currentState_.motor_state[i].q;
-        lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
-        lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
-    }
-
-    calculateInterpolationParams_(0.0, 1, true);
-
-    controlStarted_ = true;
-    receivedCmd_ = true;
-    rclcpp::Rate rate(100);
-    rate.sleep();
-    RCLCPP_INFO(nh->get_logger(), "Control initialized successfully.");
-
-    if (default_cmd.motor_cmd.size() == numJoint_)
-    {
-        for (size_t i = 0; i < numJoint_; ++i)
+        const auto &cmd = default_cmd.motor_cmd[i];
+        const auto &joint = joints_[i];
+        const double kp_min = joint.if_strong_joint ? lower_limbs_kp_min_ : upper_limbs_kp_min_;
+        const double kp_max = joint.if_strong_joint ? lower_limbs_kp_max_ : upper_limbs_kp_max_;
+        const double kd_min = joint.if_strong_joint ? lower_limbs_kd_min_ : upper_limbs_kd_min_;
+        const double kd_max = joint.if_strong_joint ? lower_limbs_kd_max_ : upper_limbs_kd_max_;
+        if (!std::isfinite(cmd.q) || !std::isfinite(cmd.kp) || !std::isfinite(cmd.kd) ||
+            cmd.q < joint.q_min || cmd.q > joint.q_max ||
+            currentState_.motor_state[i].q < joint.q_min || currentState_.motor_state[i].q > joint.q_max ||
+            cmd.kp < kp_min || cmd.kp > kp_max || cmd.kd < kd_min || cmd.kd > kd_max)
         {
-            lowCommandDesired_.motor_cmd[i].q = default_cmd.motor_cmd[i].q;
-            lowCommandDesired_.motor_cmd[i].kp = default_cmd.motor_cmd[i].kp;
-            lowCommandDesired_.motor_cmd[i].kd = default_cmd.motor_cmd[i].kd;
+            RCLCPP_ERROR(nh->get_logger(), "X2 start rejected: invalid posture or gains at joint %d.", i);
+            return false;
         }
     }
-    else
+    // Discard pre-stop interpolation, velocity and feed-forward torque. The
+    // robot can move while damping, so begin from fresh measured positions.
     {
-        for (size_t i = 0; i < numJoint_; ++i)
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (int i = 0; i < numJoint_; ++i)
         {
-            lowCommandDesired_.motor_cmd[i].q = ready_q_[i];
-            lowCommandDesired_.motor_cmd[i].kp = joints_[i].kp;
-            lowCommandDesired_.motor_cmd[i].kd = joints_[i].kd;
+            auto &last = lastCommand_.motor_cmd[i];
+            last = bridge_interface::msg::MotorCmd();
+            last.q = currentState_.motor_state[i].q;
+            last.kd = dampingActive_ ? dampingKd_[i] : joints_[i].kd;
         }
+        lowCommandDesired_ = default_cmd;
     }
-
     calculateInterpolationParams_(duration_, 1, true);
-
+    receivedCmd_ = true;
+    dampingActive_ = false;
+    controlStarted_ = true;
+    RCLCPP_INFO(nh->get_logger(), "X2 control started from measured posture; stop remains available.");
     return true;
 }
 
 void sairol_bridge::X2Bridge::finishControl_() {
+    std::lock_guard<std::recursive_mutex> guard(controlMutex_);
     std::unique_lock<std::mutex> lock(mutex_);
     controlStarted_ = false;
     if (!dampingActive_.exchange(true))
     {
-        RCLCPP_WARN(nh->get_logger(), "X2 stop damping active: posture hold released. Restart required to resume motion.");
+        RCLCPP_WARN(nh->get_logger(), "X2 stop damping active: posture hold released. A new validated start_control request is required to resume.");
     }
     publishDamping_();
 }
@@ -641,7 +706,7 @@ void sairol_bridge::X2Bridge::stopControlServiceCB_(
 {
     finishControl_();
     response->success = true;
-    response->message = "X2 damping commands published and latched; physical stopping is not confirmed.";
+    response->message = "X2 damping commands published until a new validated start_control request; physical stopping is not confirmed.";
 }
 
 void sairol_bridge::X2Bridge::publishDamping_()

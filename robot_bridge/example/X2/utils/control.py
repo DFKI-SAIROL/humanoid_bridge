@@ -53,7 +53,7 @@ class ControlSession:
         print("L2 + START：准备姿态；R2 + ×：过渡到模型姿态后自动开启 policy。")
         print("Policy 目标超过配置角度范围仅提示；Bridge 保留力矩约束。")
         print("摇杆控制速度；L2 + UP + LEFT：停止发送并请求 Bridge 停止。")
-        print("新版 X2 Bridge 收到停止请求后会锁定阻尼；不会退出调试模式。恢复控制需重启 Bridge。")
+        print("Stop keeps damping active. Release the stop buttons, then press L2 + START to rearm hold; R2 + A enables policy separately.")
         print("50 Hz policy；头 pitch 必须有有效反馈。")
         self.report_gain_limits()
 

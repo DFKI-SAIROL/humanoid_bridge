@@ -28,6 +28,11 @@ public:
 
 private:
 
+    void update_() override;
+    // Serialize the worker and executor across stop/start/command transitions.
+    // Recursive because a checked worker iteration can call finishControl_().
+    std::recursive_mutex controlMutex_;
+
     void publishLowCommand_();
     void publishDamping_();
     void stopControlServiceCB_(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,

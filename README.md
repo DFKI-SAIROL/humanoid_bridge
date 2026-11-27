@@ -97,6 +97,32 @@ with Ethernet disconnected, using the host route and explicit discovery peer.
 This does not validate walking or control performance over Wi-Fi. Bridge startup
 requests `Develop_MC`.
 
+### X2 stop and rearm
+
+The X2 `/stop_control` service releases posture holding and keeps publishing
+damping commands. It does not exit `Develop_MC` or confirm a physical stop.
+A new `/start_control` request can rearm the same bridge process after checking
+fresh feedback, posture, gains and command ownership. The transition starts at
+the measured posture and discards the previous command's velocity and torque.
+Rejected starts leave damping active. State faults and command timeouts also
+require a new explicit start; feedback recovery alone never resumes motion.
+Ready/zero-position services cannot rearm a stopped X2.
+
+With a compatible X2 client, release the stop buttons and press **LT + Start**
+again to request hold. **RT + A** is still required separately for policy
+inference. Older clients that latch their own stop state must also be updated
+or restarted. Rebuild and restart the bridge once after installing this change.
+
+The hardware-free regression test runs the real executable against mock ROS
+services and feedback on a dedicated domain restricted to UDP loopback:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/sairol_ws/src/humanoid_bridge/setup_x2.sh
+/usr/bin/python3 ~/sairol_ws/src/humanoid_bridge/robot_bridge/tests/test_x2_rearm.py \
+  ~/sairol_ws/install_x2/robot_bridge/lib/robot_bridge/X2_bridge
+```
+
 ### Launch bridge interface
 Open a terminal for bridge interface, for T1:
 ```bash
