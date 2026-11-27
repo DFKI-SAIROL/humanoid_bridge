@@ -503,10 +503,16 @@ class RobotClient:
             return False
 
         max_value = np.finfo(np.float32).max
-        for joint in msg.joints[:active_count]:
+        for i, joint in enumerate(msg.joints[:active_count]):
             values = (joint.position, joint.velocity, joint.effort)
-            if joint.error_code != 0 or not np.all(np.isfinite(values)) or np.any(np.abs(values) > max_value):
-                self.node.get_logger().error(f"X2 {group_name} joint has invalid data or error code {joint.error_code}.")
+            numeric_valid = np.all(np.isfinite(values)) and np.all(np.abs(values) <= max_value)
+            if joint.error_code != 0 or not numeric_valid:
+                self.node.get_logger().error(
+                    f"Rejected /aima/hal/joint/{group_name}/state joints[{i}] name={joint.name} "
+                    f"error_code={joint.error_code} (0x{joint.error_code:04X}) numeric_valid={str(numeric_valid).lower()} "
+                    f"position={joint.position:.9g} velocity={joint.velocity:.9g} effort={joint.effort:.9g} "
+                    f"stamp={msg.header.stamp.sec}.{msg.header.stamp.nanosec:09d} sequence={msg.header.sequence}"
+                )
                 return False
         return True
 

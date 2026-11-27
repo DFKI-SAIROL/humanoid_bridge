@@ -693,14 +693,19 @@ bool sairol_bridge::X2Bridge::checkJointStateMessage_(aimdk_msgs::msg::JointStat
     for (size_t i = 0; i < active_count; ++i)
     {
         const auto &joint = msg->joints[i];
-        if (!std::isfinite(joint.position) ||
-            !std::isfinite(joint.velocity) ||
-            !std::isfinite(joint.effort) ||
-            std::abs(joint.position) > max_value ||
-            std::abs(joint.velocity) > max_value ||
-            std::abs(joint.effort) > max_value || joint.error_code != 0)
+        const bool numeric_valid = std::isfinite(joint.position) && std::abs(joint.position) <= max_value &&
+                                   std::isfinite(joint.velocity) && std::abs(joint.velocity) <= max_value &&
+                                   std::isfinite(joint.effort) && std::abs(joint.effort) <= max_value;
+        if (joint.error_code != 0 || !numeric_valid)
         {
-            RCLCPP_ERROR(nh->get_logger(), "X2 %s joint %zu has invalid data or error code %u.", group_name.c_str(), i, joint.error_code);
+            const auto raw_code = static_cast<unsigned>(joint.error_code);
+            RCLCPP_ERROR(nh->get_logger(),
+                         "Rejected /aima/hal/joint/%s/state joints[%zu] name=%s "
+                         "error_code=%u (0x%04X) numeric_valid=%s position=%.9g velocity=%.9g effort=%.9g "
+                         "stamp=%d.%09u sequence=%u",
+                         group_name.c_str(), i, joint.name.c_str(), raw_code, raw_code,
+                         numeric_valid ? "true" : "false", joint.position, joint.velocity, joint.effort,
+                         msg->header.stamp.sec, msg->header.stamp.nanosec, msg->header.sequence);
             return false;
         }
     }
@@ -712,29 +717,30 @@ bool sairol_bridge::X2Bridge::checkStateFreshness_()
     // Core calls this without mutex_ held; do not lock it before this call
     std::unique_lock<std::mutex> lock(mutex_);
     const auto now = std::chrono::steady_clock::now();
-    if ((!legStateValid_ || std::chrono::duration<double>(now - lastLegStateTime_).count() > legStateTimeout_))
+    const auto fresh = [&](const char *group, bool valid, std::chrono::steady_clock::time_point last_valid,
+                           double timeout) {
+        if (!valid)
+        {
+            const char *reason = last_valid == std::chrono::steady_clock::time_point{} ?
+                "no accepted feedback since startup" : "latest feedback rejected";
+            RCLCPP_ERROR(nh->get_logger(), "X2 %s: %s.", group, reason);
+            return false;
+        }
+        const double age = std::chrono::duration<double>(now - last_valid).count();
+        if (age > timeout)
+        {
+            RCLCPP_ERROR(nh->get_logger(), "X2 %s feedback timed out (age=%.6f s, limit=%.6f s).",
+                         group, age, timeout);
+            return false;
+        }
+        return true;
+    };
+    if (!fresh("leg", legStateValid_, lastLegStateTime_, legStateTimeout_) ||
+        !fresh("waist", waistStateValid_, lastWaistStateTime_, waistStateTimeout_) ||
+        !fresh("arm", armStateValid_, lastArmStateTime_, armStateTimeout_) ||
+        (enableHead_ && !fresh("head", headStateValid_, lastHeadStateTime_, headStateTimeout_)) ||
+        !fresh("imu", imuStateValid_, lastImuStateTime_, imuStateTimeout_))
     {
-        RCLCPP_ERROR(nh->get_logger(), "X2 leg state is missing, invalid or stale.");
-        return false;
-    }
-    if ((!waistStateValid_ || std::chrono::duration<double>(now - lastWaistStateTime_).count() > waistStateTimeout_))
-    {
-        RCLCPP_ERROR(nh->get_logger(), "X2 waist state is missing, invalid or stale.");
-        return false;
-    }
-    if ((!armStateValid_ || std::chrono::duration<double>(now - lastArmStateTime_).count() > armStateTimeout_))
-    {
-        RCLCPP_ERROR(nh->get_logger(), "X2 arm state is missing, invalid or stale.");
-        return false;
-    }
-    if (enableHead_ && (!headStateValid_ || std::chrono::duration<double>(now - lastHeadStateTime_).count() > headStateTimeout_))
-    {
-        RCLCPP_ERROR(nh->get_logger(), "X2 head state is missing, invalid or stale.");
-        return false;
-    }
-    if ((!imuStateValid_ || std::chrono::duration<double>(now - lastImuStateTime_).count() > imuStateTimeout_))
-    {
-        RCLCPP_ERROR(nh->get_logger(), "X2 imu state is missing, invalid or stale.");
         return false;
     }
     if (checkComponentSkew_)
